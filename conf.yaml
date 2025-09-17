@@ -1,0 +1,12 @@
+paths:
+  raw: data/raw
+  interim: data/interim
+  processed: data/processed
+  models: models
+  reports: reports
+
+als:
+  factors: 128
+  reg: 0.05
+  iterations: 20
+  alpha: 40
