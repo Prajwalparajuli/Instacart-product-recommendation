@@ -1,2 +1,4 @@
 csv_files/order_products__prior.csv
 csv_files/orders.csv
+data/raw/orders.csv
+data/raw/order_products__prior.csv
