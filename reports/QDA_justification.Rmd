@@ -1,0 +1,18 @@
+---
+title: "QDA"
+author: "Phung Tran"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Quadratic Discriminant Analysis (QDA) is a classification method that separates data into groups by fitting a curved decision boundary. While logistic regression assumes linear decision boundaries between features and the outcome, QDA allows quadratic ones, curved decision boundaries, which makes it better suited for capturing nonlinear patterns. This flexibility comes from the fact that the covariance matrices are not assumed to be equal. QDA models each class distribution and assigns new points to the class with the highest posterior probability. Although QDA has a disadvantage of potentially over fitting the training data, the Instacart dataset is large enough for this not to be a major concern.
+Let \(X \in \mathbb{R}^p\) be a predictor vector and \(Y \in \{1, \dots, K\}\) be the class label.  
+For each class \(k\), QDA estimates the class prior \(\pi_k\), mean vector \(\mu_k\), and covariance matrix \(\Sigma_k\).  
+Using Bayes’ Theorem, the posterior probability that an observation belongs to class \(k\) is given by:
+$$
+P(Y = k \mid X = x) = 
+\frac{\pi_k \, \mathcal{N}(x \mid \mu_k, \Sigma_k)}
+{\sum_{l=1}^K \pi_l \, \mathcal{N}(x \mid \mu_l, \Sigma_l)}
+$$
+where \(\mathcal{N}(x \mid \mu_k, \Sigma_k)\) is the multivariate normal density for class \(k\). The decision rule assigns each observation to the class with the largest posterior probability.
+QDA is an appropriate choice for this project because shopping behavior is nonlinear depending on interactions between features (grocery items). Features like days since last purchase and times purchased interact in complex ways that QDA can capture. QDA can incorporate product-level features for new items and user-level features for new customers, making it flexible enough to generate predictions even when user or product purchase history is sparse, if other features are available. The predicted probabilities serve as input features in the ranking model. These predictions can be used by businesses to use on their end to aid in inventory, freshness of produce, and the finance department to calculate margins. Rankings guide product recommendations and help prioritize inventory planning. A QDA model can handle complexity without losing the interpretability between features. Its predictions aid in more informed decisions for business into turning the data set into a practical, usable model. 
