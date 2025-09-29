@@ -153,11 +153,105 @@ def build_prior_line_items(dfs):
     )
     print("prior shape:", prior.shape)
     print(prior.head())
+    print("prior columns:", prior.columns.tolist())
 
     return prior, orders_prior, orders_train, orders_test
 
 # load all CSVs
 def main(save_processed = False):
+    # op_train contains all products actually bought in train orders
+    # We merge with orders_train to get user_id for each order
+    train_labels = op_train.merge(
+        orders_train[["order_id", "user_id"]],
+        on="order_id",
+        how="left"
+    )
+    # Assign label=1 for these actual purchases
+    train_labels["label"] = 1
+    # Only keep necessary columns for labeling
+    train_labels = train_labels[["order_id", "user_id", "product_id", "label"]]
+
+    # For each train order, we want to predict which products the user will buy
+    # To do this, we consider all products the user has bought in prior orders as candidates
+    op_train = dfs["op_train"]
+    # user_prior_products: dict mapping user_id to array of product_ids they've bought before
+    user_prior_products = prior.groupby("user_id")["product_id"].unique()
+    candidate_rows = []
+    # Loop through each train order
+    for _, order in orders_train.iterrows():
+        user_id = order["user_id"]
+        order_id = order["order_id"]
+        # Context features for this order (day of week, hour, days since prior)
+        context = order[["order_dow", "order_hour_of_day", "days_since_prior_order"]]
+        # Get all prior products for this user
+        products = user_prior_products.get(user_id, [])
+        # For each prior product, create a candidate row
+        for product_id in products:
+            row = {
+                "order_id": order_id,
+                "user_id": user_id,
+                "product_id": product_id,
+                "order_dow": context["order_dow"],
+                "order_hour_of_day": context["order_hour_of_day"],
+                "days_since_prior_order": context["days_since_prior_order"]
+            }
+            candidate_rows.append(row)
+    # All candidate rows for all train orders
+    candidates = pd.DataFrame(candidate_rows)
+
+    # Merge with train_labels: if candidate matches an actual purchase, label=1, else label=0
+    candidates = candidates.merge(
+        train_labels,
+        on=["order_id", "user_id", "product_id"],
+        how="left"
+    )
+    # Fill missing labels (not actual purchase) with 0
+    candidates["label"] = candidates["label"].fillna(0).astype("int8")
+
+    # Add user-level features
+    candidates = candidates.merge(user_features, on="user_id", how="left")
+    # Add product-level features
+    candidates = candidates.merge(product_features, on="product_id", how="left")
+    # Add user-product interaction features
+    candidates = candidates.merge(up_features, on=["user_id", "product_id"], how="left")
+
+    # Print shape and first few rows for inspection
+    print("Train candidates shape:", candidates.shape)
+    print(candidates.head())
+    # Build product features from prior only
+    product_grp = prior.groupby("product_id")
+    product_features = pd.DataFrame({
+        "product_id": product_grp["product_id"].first(),
+        "p_total_purchases": product_grp["order_id"].count(),
+        "p_distinct_users": product_grp["user_id"].nunique(),
+        "p_avg_add_to_cart": product_grp["add_to_cart_order"].mean(),
+        "p_reorder_prob": product_grp["reordered"].mean().fillna(0)
+    })
+    product_features.to_csv(PROCESSED / "ql_product_features.csv", index=False)
+    print("Saved product features to data/processed/ql_product_features.csv")
+    print(product_features.head())
+
+    # Build user-product features from prior only
+    up_grp = prior.groupby(["user_id", "product_id"])
+    up_features = pd.DataFrame({
+        "user_id": up_grp["user_id"].first(),
+        "product_id": up_grp["product_id"].first(),
+        "up_times_bought": up_grp["order_id"].count(),
+        "up_last_order_number": up_grp["order_number"].max(),
+        "up_first_order_number": up_grp["order_number"].min(),
+        "up_avg_add_to_cart": up_grp["add_to_cart_order"].mean()
+    })
+    # Compute recency
+    u_last_prior_order = prior.groupby("user_id")["order_number"].max()
+    up_features["up_recency"] = up_features.apply(
+        lambda row: u_last_prior_order[row["user_id"]] - row["up_last_order_number"], axis=1
+    )
+    # Compute rate in user history
+    user_total_bought = up_features.groupby("user_id")["up_times_bought"].transform("sum")
+    up_features["up_rate_in_user_history"] = up_features["up_times_bought"] / user_total_bought
+    up_features.to_csv(PROCESSED / "ql_user_product_features_prior.csv", index=False)
+    print("Saved user-product features to data/processed/ql_user_product_features_prior.csv")
+    print(up_features.head())
     """
     Main workflow for the script. Loads all data, prints summary, builds core tables, and optionally saves processed results.
     Args:
@@ -170,6 +264,31 @@ def main(save_processed = False):
     # merge prior orders with prior products
 
     prior, orders_prior, orders_train, orders_test = build_prior_line_items(dfs)
+
+    # Build user features from prior only
+    user_grp = prior.groupby("user_id")
+    user_features = pd.DataFrame({
+        # User ID
+        "user_id": user_grp["user_id"].first(),
+        # Total number of orders for each user
+        "u_total_orders": user_grp["order_number"].max(),
+        # Total number of items ordered by each user
+        "u_total_items": user_grp["product_id"].count(),
+        # Number of distinct products ordered by each user
+        "u_distinct_products": user_grp["product_id"].nunique(),
+        # Average basket size: items per unique order
+        "u_avg_basket_size": user_grp["order_id"].count() / user_grp["order_id"].nunique(),
+        # Reorder ratio: mean of reordered flag (0 if not present)
+        "u_reorder_ratio": user_grp["reordered"].mean().fillna(0),
+        # Mean days between orders (ignoring NaNs)
+        "u_mean_days_between": user_grp["days_since_prior_order"].mean(),
+        # Std dev of days between orders (ignoring NaNs)
+        "u_std_days_between": user_grp["days_since_prior_order"].std()
+    })
+    user_features = user_features.reset_index(drop=True)
+    user_features.to_csv(PROCESSED / "ql_user_features.csv", index=False)
+    print("Saved user features to data/processed/ql_user_features.csv")
+    print(user_features.head())
 
     if save_processed:
         prior.to_csv(PROCESSED / "prior_line_items.csv", index = False)
