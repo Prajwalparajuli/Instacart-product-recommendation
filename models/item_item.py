@@ -1,265 +1,166 @@
-###Compute item-item similarity for candidates###
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 7,
-   "id": "edecad05-6530-4aa2-aad3-e72a6179c84f",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Step 1: Loading and preparing data...\n",
-      "Data loaded successfully.\n",
-      "\n",
-      "Step 2: Creating the item-order sparse matrix...\n",
-      "Shape of the sparse item-order matrix: (49677, 3214874)\n",
-      "\n",
-      "Step 3: Calculating item-item similarity matrix...\n",
-      "Shape of the similarity matrix: (49677, 49677)\n",
-      "\n",
-      "Step 4: Finding Top-K similar items for each product...\n",
-      "\n",
-      "Top 3 Similar Items for a sample product (ID: 24852):\n",
-      "[{'product_id': 47766, 'score': 0.18472}, {'product_id': 28204, 'score': 0.16493}, {'product_id': 21137, 'score': 0.15878}]\n",
-      "\n",
-      "Step 5: Generating candidate items for a user...\n",
-      "\n",
-      "Candidate items for a user who recently bought products [13176, 21137]:\n",
-      "[47209, 21137, 13176, 27966, 21903]\n",
-      "\n",
-      "Process finished successfully.\n"
-     ]
-    }
-   ],
-   "source": [
-    "import pandas as pd\n",
-    "import numpy as np\n",
-    "from scipy.sparse import csr_matrix, lil_matrix\n",
-    "import warnings\n",
-    "\n",
-    "# Suppress warnings for cleaner output\n",
-    "warnings.filterwarnings(\"ignore\", category=FutureWarning)\n",
-    "\n",
-    "# --- 1. Data Loading and Initial Preparation ---\n",
-    "print(\"Step 1: Loading and preparing data...\")\n",
-    "try:\n",
-    "    # Load the datasets\n",
-    "    df_baskets = pd.read_csv(r\"C:\\Users\\kthac\\Desktop\\Group_4419\\item item similarity\\item_item_basket.csv\")\n",
-    "    df_counts = pd.read_csv(r\"C:\\Users\\kthac\\Desktop\\Group_4419\\item item similarity\\item_item_product_counts.csv\")\n",
-    "\n",
-    "    print(\"Data loaded successfully.\")\n",
-    "    \n",
-    "    # Ensure data types are correct for memory efficiency\n",
-    "    df_baskets['order_id'] = df_baskets['order_id'].astype('category')\n",
-    "    df_baskets['product_id'] = df_baskets['product_id'].astype('category')\n",
-    "\n",
-    "    # Get all unique products and map them to a contiguous index\n",
-    "    product_ids = df_baskets['product_id'].cat.categories\n",
-    "    product_to_index = {product: i for i, product in enumerate(product_ids)}\n",
-    "    index_to_product = {i: product for product, i in product_to_index.items()}\n",
-    "    \n",
-    "except FileNotFoundError as e:\n",
-    "    print(f\"Error: {e}. Make sure the CSV files are in the same directory as the script.\")\n",
-    "    exit()\n",
-    "\n",
-    "# --- 2. Create the Item-Order Sparse Matrix ---\n",
-    "print(\"\\nStep 2: Creating the item-order sparse matrix...\")\n",
-    "rows = df_baskets['product_id'].cat.codes\n",
-    "cols = df_baskets['order_id'].cat.codes\n",
-    "data = [1] * len(df_baskets)\n",
-    "item_order_matrix = csr_matrix((data, (rows, cols)),\n",
-    "                               shape=(len(product_ids), len(df_baskets['order_id'].cat.categories)))\n",
-    "\n",
-    "print(\"Shape of the sparse item-order matrix:\", item_order_matrix.shape)\n",
-    "\n",
-    "\n",
-    "# --- 3. Calculate Item-Item Similarity (in Chunks) ---\n",
-    "print(\"\\nStep 3: Calculating item-item similarity matrix...\")\n",
-    "co_occurrence_matrix = item_order_matrix.dot(item_order_matrix.T)\n",
-    "\n",
-    "actual_count_column = 'count'\n",
-    "# Filter df_counts to only include products present in our sample basket\n",
-    "df_counts_filtered = df_counts[df_counts['product_id'].isin(product_ids)]\n",
-    "product_frequencies = df_counts_filtered.set_index('product_id')[actual_count_column].loc[product_ids].values\n",
-    "\n",
-    "sqrt_frequencies = np.sqrt(product_frequencies)\n",
-    "\n",
-    "chunk_size = 100\n",
-    "n_products = len(product_ids)\n",
-    "n_chunks = (n_products + chunk_size - 1) // chunk_size\n",
-    "\n",
-    "similarity_matrix = lil_matrix((n_products, n_products))\n",
-    "\n",
-    "for i in range(n_chunks):\n",
-    "    start_i = i * chunk_size\n",
-    "    end_i = min((i + 1) * chunk_size, n_products)\n",
-    "    \n",
-    "    chunk_co_occurrence = co_occurrence_matrix[start_i:end_i, :].toarray()\n",
-    "    \n",
-    "    chunk_sqrt_freq = sqrt_frequencies[start_i:end_i]\n",
-    "    chunk_denominator = np.outer(chunk_sqrt_freq, sqrt_frequencies)\n",
-    "    chunk_denominator[chunk_denominator == 0] = 1e-9\n",
-    "    \n",
-    "    chunk_similarity = chunk_co_occurrence / chunk_denominator\n",
-    "    similarity_matrix[start_i:end_i, :] = chunk_similarity\n",
-    "\n",
-    "print(\"Shape of the similarity matrix:\", similarity_matrix.shape)\n",
-    "\n",
-    "\n",
-    "# --- 4. Find Top-K Similar Items ---\n",
-    "print(\"\\nStep 4: Finding Top-K similar items for each product...\")\n",
-    "K = 10\n",
-    "top_k_similar_items = {}\n",
-    "similarity_matrix_csr = similarity_matrix.tocsr()\n",
-    "\n",
-    "for i, product_id in enumerate(product_ids):\n",
-    "    row = similarity_matrix_csr[i].toarray().flatten()\n",
-    "    top_indices = np.argsort(row)[::-1][:K + 1]\n",
-    "    \n",
-    "    similar_products_list = []\n",
-    "    for index in top_indices:\n",
-    "        if index != i:\n",
-    "            similar_product_id = index_to_product[index]\n",
-    "            score = row[index]\n",
-    "            similar_products_list.append({'product_id': similar_product_id, 'score': score})\n",
-    "    \n",
-    "    top_k_similar_items[product_id] = similar_products_list\n",
-    "\n",
-    "print(\"\\nTop 3 Similar Items for a sample product (ID: 24852):\")\n",
-    "if 24852 in top_k_similar_items:\n",
-    "    top_3 = top_k_similar_items[24852][:3]\n",
-    "    for item in top_3:\n",
-    "        item['score'] = round(item['score'], 5)\n",
-    "    print(top_3)\n",
-    "else:\n",
-    "    print(\"Sample product ID 24852 not found in the sample data.\")\n",
-    "\n",
-    "\n",
-    "# --- 5. Generate Outputs (Example Usage) ---\n",
-    "print(\"\\nStep 5: Generating candidate items for a user...\")\n",
-    "\n",
-    "def get_candidate_items(user_recent_purchases, num_recommendations=5):\n",
-    "    candidate_items = {}\n",
-    "    for product_id in user_recent_purchases:\n",
-    "        if product_id in top_k_similar_items:\n",
-    "            for item in top_k_similar_items[product_id]:\n",
-    "                candidate_product = item['product_id']\n",
-    "                score = item['score']\n",
-    "                if candidate_product not in candidate_items or score > candidate_items[candidate_product]:\n",
-    "                    candidate_items[candidate_product] = score\n",
-    "    \n",
-    "    sorted_candidates = sorted(candidate_items.items(), key=lambda x: x[1], reverse=True)\n",
-    "    return [item[0] for item in sorted_candidates[:num_recommendations]]\n",
-    "\n",
-    "# Using product IDs known to be popular from your counts file\n",
-    "user_purchases = [13176, 21137] \n",
-    "recommended_candidates = get_candidate_items(user_purchases, num_recommendations=5)\n",
-    "\n",
-    "print(f\"\\nCandidate items for a user who recently bought products {user_purchases}:\")\n",
-    "print(recommended_candidates)\n",
-    "print(\"\\nProcess finished successfully.\")"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "6babff94-429a-493c-bdc9-5625a2ba8a85",
-   "metadata": {
-    "jp-MarkdownHeadingCollapsed": true
-   },
-   "source": [
-    "# Step 1: Data Loading and Initial Preparation\n",
-    "This section handles data and initial memory optimization using pandas.\n",
-    "pd.read_csv: Loads the basket and product count data into pandas DataFrames.\n",
-    ".astype('category'): This is a key memory-saving step. Instead of storing product and order IDs as int64 or object strings, they are converted to a category dtype. Pandas internally maps each unique ID to a contiguous integer (accessible via .cat.codes), which is much more memory-efficient and provides a direct lookup for creating our sparse matrix.\n",
-    "ID to Index Mapping: Dictionaries (product_to_index, index_to_product) are created to map the original product_id to its new integer index (0 to n_products-1) and back. This is necessary because the matrix will operate on these zero-based indices."
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "086bed90-bbe4-45cf-89e2-ae82bff7029d",
-   "metadata": {},
-   "source": [
-    "# Step 2: Creating the Item-Order Sparse Matrix\n",
-    "The goal here is to create a binary matrix representing which items appeared in which orders. A (num_products x num_orders) NumPy array was too large.\n",
-    "scipy.sparse.csr_matrix: We use a Compressed Sparse Row (CSR) matrix because it's highly efficient for both storage and, more importantly, for the fast matrix-vector and matrix-matrix multiplications (.dot() product) required in the next step.\n",
-    "csr_matrix((data, (rows, cols)), shape=...): This is the standard constructor for creating a sparse matrix from coordinate-style data.\n",
-    "rows: The product indices (df_baskets['product_id'].cat.codes).\n",
-    "cols: The order indices (df_baskets['order_id'].cat.codes).\n",
-    "data: A list of ones, indicating the presence of an item in an order."
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "5d440f84-2057-49a8-9128-d9a2cce5821e",
-   "metadata": {},
-   "source": [
-    "# Step 3: Calculate Item-Item Similarity \n",
-    "This is the core of the algorithm. It computes a similarity score between every pair of products.\n",
-    "Co-occurrence Matrix: The line co_occurrence_matrix = item_order_matrix.dot(item_order_matrix.T) is the most critical calculation. By taking the dot product of the matrix with its transpose, we efficiently compute the co-occurrence matrix. The resulting (num_products x num_products) sparse matrix contains the raw count of how many times any two items appeared together in the same basket.\n",
-    "Memory Management: A dense float matrix of the full similarity scores would be too large to fit in memory (~18 GB for 49k products). The code therefore processes the similarity calculation in chunks.\n",
-    "Similarity Metric: The metric used is a normalized co-occurrence. The formula is essentially Co-occurrence(A, B) / (sqrt(Count(A)) * sqrt(Count(B))).\n",
-    "np.outer: The denominator is calculated efficiently for each chunk using NumPy's outer product. This broadcasts the vectors of square-rooted product frequencies, avoiding a slow, explicit Python loop.\n",
-    "lil_matrix: The results are stored in a List of Lists (LIL) matrix. lil_matrix is chosen here because it's efficient for constructing sparse matrices incrementally by changing sparsity structure (i.e., filling in the chunks row by row)."
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "0d3c2c00-7b8d-4602-80df-7d3abd1eb977",
-   "metadata": {},
-   "source": [
-    "# Step 4: Find Top-K Similar Items\n",
-    "This section extracts the top K most similar items for each product from the final similarity matrix.\n",
-    ".tocsr(): The similarity matrix is converted from LIL back to CSR format. CSR is much more efficient for row slicing, which is exactly what we're about to do in the loop.\n",
-    "np.argsort(): Instead of using a computationally expensive method like sklearn.NearestNeighbors (which would require a dense distance matrix), the code uses a more direct and faster NumPy approach.\n",
-    "np.argsort(row) returns the indices that would sort the array in ascending order.\n",
-    "By reversing this with [::-1], we get the indices of the similarity scores from largest to smallest.\n",
-    "Slicing with [:K+1] gives the indices of the top K+1 items (the item itself plus its K nearest neighbors). This is an extremely fast and memory-efficient way to perform a top-k search on each row."
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "59310372-6804-4a44-8fcb-8919016cfbc0",
-   "metadata": {},
-   "source": [
-    "# Step 5: Generate Outputs (Example Usage)\n",
-    "This final part is a practical demonstration of how to use the pre-computed similarities to generate recommendations.\n",
-    "get_candidate_items function: This function takes a list of a user's recent purchases and returns a ranked list of recommended products.\n",
-    "Candidate Aggregation: It iterates through the user's items and their corresponding similarity lists. A dictionary (candidate_items) is used to aggregate all potential recommendations.\n",
-    "Score Deduplication: Using a dictionary is a clever way to handle duplicates. The line if candidate_product not in candidate_items or score > candidate_items[candidate_product] ensures that if a candidate is suggested by multiple user items, only the highest similarity score is retained.\n",
-    "Final Ranking: Finally, sorted(candidate_items.items(), ...) is used with a lambda function to sort the candidates by their similarity scores in descending order before returning the top N product IDs."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "dcc3f287-5c5f-45cd-ae93-3eb58fab49cc",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python [conda env:base] *",
-   "language": "python",
-   "name": "conda-base-py"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.12.4"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+### Compute item-item similarity for candidates (minimal changes; counts file removed) ###
+
+import pandas as pd
+import numpy as np
+from scipy.sparse import csr_matrix
+import warnings
+from pathlib import Path
+import time
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# --- 1. Data Loading and Initial Preparation ---
+print("Step 1: Loading and preparing data...")
+try:
+    # CHANGED: use repo-relative processed path; remove hard-coded Windows path
+    BASKETS_CSV = Path("data/processed/item_item_basket.csv")
+    if not BASKETS_CSV.exists():
+        raise FileNotFoundError(f"{BASKETS_CSV} not found")
+
+    # Load the datasets
+    df_baskets = pd.read_csv(BASKETS_CSV)
+
+    print("Data loaded successfully.")
+    
+    # Ensure data types are correct for memory efficiency
+    df_baskets['order_id'] = df_baskets['order_id'].astype('category')
+    df_baskets['product_id'] = df_baskets['product_id'].astype('category')
+
+    # Get all unique products and map them to a contiguous index
+    product_ids = df_baskets['product_id'].cat.categories
+    product_to_index = {product: i for i, product in enumerate(product_ids)}
+    index_to_product = {i: product for product, i in product_to_index.items()}
+    
+except FileNotFoundError as e:
+    print(f"Error: {e}. Make sure the CSV files are in the expected directory.")
+    raise SystemExit(1)
+
+# --- 2. Create the Item-Order Sparse Matrix ---
+print("\nStep 2: Creating the item-order sparse matrix...")
+rows = df_baskets['product_id'].cat.codes.to_numpy()
+cols = df_baskets['order_id'].cat.codes.to_numpy()
+data = np.ones(len(df_baskets), dtype=np.uint8)
+item_order_matrix = csr_matrix(
+    (data, (rows, cols)),
+    shape=(len(product_ids), len(df_baskets['order_id'].cat.categories))
+)
+
+print("Shape of the sparse item-order matrix:", item_order_matrix.shape)
+
+# (CHANGED) Derive product frequencies internally (no external counts file)
+# Each row sum = number of orders containing that product
+freq = np.asarray(item_order_matrix.sum(axis=1)).ravel().astype(np.float32)
+inv_sqrt = 1.0 / np.sqrt(np.clip(freq, 1e-12, None))
+# Pre-normalize rows so that Xn @ Xn.T yields cosine-like similarity
+Xn = item_order_matrix.multiply(inv_sqrt[:, None]).tocsr()
+
+
+# --- 3. Calculate Item-Item Similarity (Mini-batch; no full matrix) ---
+print("\nStep 3: Calculating item-item similarity matrix (mini-batch, Top-K only)...")
+
+K = 10  # keep original K default
+BATCH_SIZE = 512  # (ADDED) mini-batch size for faster sparse BLAS
+n_products = len(product_ids)
+top_k_similar_items = {}
+
+def _topk_from_sparse_row(indptr, indices, data, local_row_idx, global_row_idx, K):
+    """
+    Extract Top-K for one row in a CSR block.
+    Deterministic ordering: score desc, index asc. Excludes self.
+    """
+    start, end = indptr[local_row_idx], indptr[local_row_idx + 1]
+    js = indices[start:end]
+    vals = data[start:end].astype(np.float32)
+
+    # Exclude self
+    mask = (js != global_row_idx)
+    js = js[mask]
+    vals = vals[mask]
+    if js.size == 0:
+        return []
+
+    keep = min(K, js.size)
+    sel = np.argpartition(vals, -keep)[-keep:]
+    js_top = js[sel]
+    vals_top = vals[sel]
+
+    # Deterministic order: score desc, then neighbor index asc
+    order = np.lexsort((js_top, -vals_top))
+    js_top = js_top[order]
+    vals_top = vals_top[order]
+
+    return [{'product_id': index_to_product[j], 'score': float(v)} for j, v in zip(js_top, vals_top)]
+
+t0 = time.time()
+for start in range(0, n_products, BATCH_SIZE):
+    end = min(start + BATCH_SIZE, n_products)
+    # (CHANGED) Batch multiply against all items; stays sparse
+    S_chunk = Xn[start:end, :].dot(Xn.T).tocsr()
+    indptr, indices, dataS = S_chunk.indptr, S_chunk.indices, S_chunk.data
+
+    for local_i in range(end - start):
+        global_i = start + local_i
+        pid = product_ids[global_i]
+        top_k_similar_items[pid] = _topk_from_sparse_row(indptr, indices, dataS, local_i, global_i, K)
+
+    if (end % 2000) == 0 or end == n_products:
+        print(f"  processed {end}/{n_products} items in {time.time()-t0:.1f}s")
+
+print("\nStep 4: Finding Top-K similar items for each product...")
+# NOTE: Already done per row during Step 3 (Top-K extracted from each batch)
+
+print("\nTop 3 Similar Items for a sample product (ID: 24852):")
+if 24852 in top_k_similar_items:
+    top_3 = top_k_similar_items[24852][:3]
+    for item in top_3:
+        item['score'] = round(item['score'], 5)
+    print(top_3 if len(top_3) > 0 else "[no neighbors found]")
+else:
+    print("Sample product ID 24852 not found in the sample data.")
+
+# --- 5. Generate Outputs (Example Usage) ---
+print("\nStep 5: Generating candidate items for a user...")
+
+# (CHANGED) Aggregate by SUM (better multi-anchor signal). 'max' still supported.
+def get_candidate_items(user_recent_purchases, num_recommendations=5, agg="sum"):
+    candidate_items = {}
+    recent_set = set(user_recent_purchases)
+    for product_id in user_recent_purchases:
+        if product_id in top_k_similar_items:
+            for item in top_k_similar_items[product_id]:
+                candidate_product = item['product_id']
+                score = float(item['score'])
+                if candidate_product in recent_set:
+                    continue
+                if agg == "sum":
+                    candidate_items[candidate_product] = candidate_items.get(candidate_product, 0.0) + score
+                else:  # 'max'
+                    if (candidate_product not in candidate_items) or (score > candidate_items[candidate_product]):
+                        candidate_items[candidate_product] = score
+
+    sorted_candidates = sorted(candidate_items.items(), key=lambda x: (-x[1], str(x[0])))
+    return [item[0] for item in sorted_candidates[:num_recommendations]]
+
+# Using product IDs known to be popular from your counts file (example values kept)
+user_purchases = [13176, 21137] 
+recommended_candidates = get_candidate_items(user_purchases, num_recommendations=5, agg="sum")
+
+print(f"\nCandidate items for a user who recently bought products {user_purchases}:")
+print(recommended_candidates)
+
+# (CHANGED) Save compact artifact for downstream models (CSV only; mirrors ALS style)
+OUT_CSV = Path("data/processed/item_item_similarity_score.csv")
+rows_out = []
+for pid, neighbors in top_k_similar_items.items():
+    for rank, n in enumerate(neighbors, start=1):
+        rows_out.append([pid, n["product_id"], float(n["score"]), rank])
+
+df_out = pd.DataFrame(rows_out, columns=["product_id", "neighbor_product_id", "score", "rank"])
+df_out["score"] = df_out["score"].astype("float32")
+OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+df_out.to_csv(OUT_CSV, index=False)
+
+print("\nSaved item-item similarity scores to:", OUT_CSV.as_posix())
+print(f"Total elapsed: {time.time()-t0:.1f}s")
+print("\nProcess finished successfully.")
