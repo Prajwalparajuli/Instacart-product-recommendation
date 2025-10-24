@@ -1,12 +1,124 @@
+# Instacart Product Recommendation System Configuration
+# Tailored to implemented pipeline components
+
+# Data paths (matching your project structure)
 paths:
   raw: data/raw
   interim: data/interim
   processed: data/processed
   models: models
   reports: reports
+  figures: reports/figures
 
+# Raw data files (as used in ingest.py)
+data_files:
+  orders: orders.csv
+  order_products_prior: order_products__prior.csv
+  order_products_train: order_products__train.csv
+  products: products.csv
+  aisles: aisles.csv
+  departments: departments.csv
+
+# Data types for memory optimization (matching ingest.py)
+dtypes:
+  order_id: int32
+  user_id: int32
+  product_id: int32
+  order_number: int16
+  order_dow: int8
+  order_hour_of_day: int8
+  add_to_cart_order: int16
+  reordered: int8
+
+# ALS model parameters (matching your als_build_interactions.py)
 als:
-  factors: 128
-  reg: 0.05
-  iterations: 20
-  alpha: 40
+  factors: 128              # Number of latent factors
+  reg: 0.05                # Regularization parameter
+  iterations: 20           # Number of training iterations
+  alpha: 40                # Confidence weighting parameter
+  use_gpu: false           # GPU acceleration
+  
+  # File outputs from als_build_interactions.py
+  outputs:
+    interactions: als_interaction_user_product_counts.csv
+    user_map: als_user_index_map.csv
+    product_map: als_product_index_map.csv
+    coo_matrix: als_coo.csv
+    user_factors: als_user_factors.npy
+    product_factors: als_product_factors.npy
+    scores: als_scores_prior_pairs.csv
+
+# Item-item similarity (matching your similarity pipeline)
+similarity:
+  # File outputs
+  outputs:
+    basket: item_item_basket.csv
+    product_counts: item_item_product_counts.csv
+    similarity_scores: item_item_similarity_score.csv
+    
+  # Parameters for similarity_agg_als_score.py
+  aggregation:
+    topk: 10                # Top-K neighbors for aggregation
+    fill_value: 0.0         # Fill value for missing similarities
+    
+# Feature engineering (matching build_features.py implementation)
+features:
+  # User features (as computed in build_features.py)
+  user:
+    - u_total_orders         # max order_number per user
+    - u_total_items          # count of products ordered
+    - u_distinct_products    # unique products per user
+    - u_avg_basket_size      # average items per order
+    - u_reorder_ratio        # mean reordered flag
+    - u_mean_days_between    # mean days since prior order
+    - u_std_days_between     # std dev days since prior order
+    
+  # Product features (as computed in build_features.py) 
+  product:
+    - p_total_purchases      # total times purchased
+    - p_distinct_users       # unique users who bought
+    - p_avg_add_to_cart      # average cart position
+    - p_reorder_prob         # reorder probability
+    
+  # User-product features (as computed in build_features.py)
+  user_product:
+    - up_times_bought        # purchase frequency
+    - up_last_order_number   # recency (last order)
+    - up_first_order_number  # first purchase order
+    - up_avg_add_to_cart     # average cart position
+    - up_recency             # orders since last purchase
+    - up_rate_in_user_history # purchase rate within user history
+    
+  # ALS + similarity features (from similarity_agg_als_score.py)
+  als_similarity:
+    - als_score              # ALS predicted affinity
+    - sim_max                # strongest similarity match
+    - sim_mean               # average similarity
+    - sim_topk_mean_10       # top-10 average similarity
+    - sim_nonzero_cnt        # count of similarity edges
+
+# Final datasets (from build_features.py)
+datasets:
+  train_candidates: train_candidates.csv    # Training data with labels
+  test_candidates: test_candidates.csv      # Test data for inference
+  user_product_features: user_product_features.csv  # ALS + similarity features
+
+# Evaluation splits (matching your eval_set usage)
+splits:
+  prior: prior     # Historical data for feature engineering
+  train: train     # Training set for supervised learning  
+  test: test       # Test set for final evaluation
+
+# Performance settings
+performance:
+  chunk_size: 10000    # For large dataset processing
+  memory_efficient: true  # Use memory-optimized operations
+  
+# File validation (ensure required files exist)
+required_files:
+  - data/raw/orders.csv
+  - data/raw/order_products__prior.csv
+  - data/raw/order_products__train.csv
+  - data/raw/products.csv
+  - data/raw/aisles.csv
+  - data/raw/departments.csv
