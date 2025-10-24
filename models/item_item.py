@@ -1,4 +1,4 @@
-### Compute item-item similarity for candidates (minimal changes; counts file removed) ###
+### Compute item-item similarity for candidates ###
 
 import pandas as pd
 import numpy as np
@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # --- 1. Data Loading and Initial Preparation ---
 print("Step 1: Loading and preparing data...")
 try:
-    # CHANGED: use repo-relative processed path; remove hard-coded Windows path
+    
     BASKETS_CSV = Path("data/processed/item_item_basket.csv")
     if not BASKETS_CSV.exists():
         raise FileNotFoundError(f"{BASKETS_CSV} not found")
@@ -48,7 +48,7 @@ item_order_matrix = csr_matrix(
 
 print("Shape of the sparse item-order matrix:", item_order_matrix.shape)
 
-# (CHANGED) Derive product frequencies internally (no external counts file)
+# Derive product frequencies internally 
 # Each row sum = number of orders containing that product
 freq = np.asarray(item_order_matrix.sum(axis=1)).ravel().astype(np.float32)
 inv_sqrt = 1.0 / np.sqrt(np.clip(freq, 1e-12, None))
@@ -122,7 +122,7 @@ else:
 # --- 5. Generate Outputs (Example Usage) ---
 print("\nStep 5: Generating candidate items for a user...")
 
-# (CHANGED) Aggregate by SUM (better multi-anchor signal). 'max' still supported.
+# Aggregate by SUM (better multi-anchor signal). 'max' still supported.
 def get_candidate_items(user_recent_purchases, num_recommendations=5, agg="sum"):
     candidate_items = {}
     recent_set = set(user_recent_purchases)
@@ -149,7 +149,7 @@ recommended_candidates = get_candidate_items(user_purchases, num_recommendations
 print(f"\nCandidate items for a user who recently bought products {user_purchases}:")
 print(recommended_candidates)
 
-# (CHANGED) Save compact artifact for downstream models (CSV only; mirrors ALS style)
+# Save compact artifact for downstream models (CSV only; mirrors ALS style)
 OUT_CSV = Path("data/processed/item_item_similarity_score.csv")
 rows_out = []
 for pid, neighbors in top_k_similar_items.items():
