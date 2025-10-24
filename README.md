@@ -4,11 +4,13 @@ A machine learning project that builds a product recommendation system using the
 
 ## Project Overview
 
-This project implements multiple recommendation approaches including:
-- **Collaborative Filtering**: Using Alternating Least Squares (ALS) matrix factorization
-- **Content-Based Filtering**: Product similarity and user preference modeling
-- **Feature Engineering**: Advanced user, product, and interaction features
-- **Ensemble Methods**: Combining multiple models for improved performance
+This project implements a product recommendation system using the Instacart Market Basket Analysis dataset. The system predicts which products a user is likely to reorder based on their historical purchase patterns.
+
+**Current Implementation Approach:**
+- **Collaborative Filtering**: Alternating Least Squares (ALS) matrix factorization for user-product affinity
+- **Item-Item Similarity**: Cosine similarity between products based on purchase co-occurrence  
+- **Feature Engineering**: User, product, and interaction features for supervised learning
+- **Feature Aggregation**: Combining ALS scores with item-item similarity metrics
 
 ## Dataset
 
@@ -28,16 +30,16 @@ insta-rec/
 │   └── processed/             # Final feature-engineered datasets
 ├── notebooks/
 │   ├── 01_eda_instacart.ipynb # Comprehensive exploratory data analysis
-│   └── Item_Item.ipynb        # Item-based collaborative filtering
+│   ├── Item_Item.ipynb        # Item-based collaborative filtering
+│   └── QDA.ipynb             # Quadratic Discriminant Analysis experiments
 ├── src/
-│   ├── ingest.py             # Data loading and basic preprocessing
+│   ├── ingest.py             # Data loading with YAML configuration
 │   ├── validate.py           # Data integrity checks
 │   ├── build_features.py     # Feature engineering pipeline
-│   ├── als_build_interactions.py # ALS model data preparation
-│   ├── similarity_agg_als_score.py # Model scoring and aggregation
-│   ├── qda_feature_extraction.py # QDA-based feature extraction
-│   ├── eval.py               # Model evaluation metrics
-│   └── utlis.py              # Utility functions
+│   ├── als_build_interactions.py # ALS interaction matrix preparation
+│   ├── similarity_agg_als_score.py # ALS+similarity feature aggregation
+│   ├── eval.py               # Model evaluation metrics (stub)
+│   └── utlis.py              # Configuration management and utilities
 ├── models/                   # Trained model artifacts
 ├── reports/                  # Analysis reports and visualizations
 ├── conf.yaml                # Configuration parameters
@@ -58,36 +60,40 @@ insta-rec/
 2. **Data Infrastructure**
    - Data validation and integrity checks
    - Efficient data loading with optimized dtypes
-   - Configuration management system
+   - **YAML-based configuration management system**
+   - **Centralized utility functions for config loading and path management**
    - Project structure setup
 
-3. **Feature Engineering Foundation**
+3. **Feature Engineering Pipeline**
    - User behavior features (order frequency, recency, seasonality)
    - Product features (popularity, department/aisle statistics)
-   - Interaction features (reorder probability, cart position)
+   - User-product interaction features (reorder probability, cart position)
+   - **ALS interaction matrix preparation for collaborative filtering**
+   - **ALS+similarity feature aggregation combining multiple signals**
 
 ### In Progress
 
 1. **Model Implementation**
-   - ALS (Alternating Least Squares) collaborative filtering
-   - Item-item similarity models
-   - Feature extraction for supervised learning
+   - ALS (Alternating Least Squares) collaborative filtering ✓ (interaction matrix ready)
+   - Item-item similarity computation ✓ (similarity aggregation implemented)
+   - Supervised learning pipeline integration
 
-2. **Evaluation Framework**
-   - Recommendation quality metrics
-   - Model comparison and validation
+2. **Model Training & Evaluation**
+   - QDA (Quadratic Discriminant Analysis) experiments
+   - Gradient boosting model implementation (LightGBM/XGBoost)
+   - Model evaluation metrics and validation framework
 
 ### Planned
 
-1. **Advanced Models**
-   - Gradient boosting (LightGBM/XGBoost) for ranking
-   - Deep learning approaches
-   - Ensemble methods
-
-2. **Production Pipeline**
+1. **Production Pipeline**
    - Model serving infrastructure
-   - Streamlit web interface
-   - Performance optimization
+   - Streamlit web interface implementation
+   - Performance optimization and caching
+
+2. **Model Enhancements**
+   - Hyperparameter optimization for gradient boosting models
+   - Cross-validation and model selection framework
+   - A/B testing simulation for recommendation evaluation
 
 ## Key Insights from EDA
 
@@ -137,29 +143,59 @@ insta-rec/
 
 2. **Data Processing**
    ```bash
+   # Load and validate data using YAML configuration
    python src/ingest.py
    python src/build_features.py
    ```
 
-3. **Model Training** (when implemented)
+3. **Model Training** 
    ```bash
+   # Build ALS interaction matrix
    python src/als_build_interactions.py
+   
+   # Generate combined ALS + similarity features  
    python src/similarity_agg_als_score.py
    ```
 
 ## Configuration
 
-Key parameters are managed in `conf.yaml`:
-- Data paths and directories
-- ALS model hyperparameters (factors, regularization, iterations)
-- Feature engineering settings
+The project uses a centralized YAML configuration system (`conf.yaml`) for managing:
+
+- **Data Paths**: Input/output directories (raw, interim, processed)
+- **File Names**: All CSV file names and generated outputs
+- **Data Types**: Pandas dtypes for memory optimization
+- **Model Parameters**: ALS hyperparameters (factors=128, regularization=0.05, iterations=50)
+- **Feature Settings**: Feature engineering parameters and thresholds
+
+### Configuration Usage
+
+The configuration system is implemented in `src/utlis.py` with utilities:
+
+```python
+from utlis import load_config, get_paths, get_data_files, get_dtypes
+
+# Load configuration
+config = load_config()
+
+# Access specific sections
+paths = get_paths(config)          # Get data directories
+files = get_data_files(config)     # Get file names
+dtypes = get_dtypes(config)        # Get pandas dtypes
+```
+
+Scripts that use configuration:
+- `src/ingest.py` - Uses configured paths, filenames, and dtypes
+- `src/utlis.py` - Provides configuration management utilities
+
+This system ensures consistency across the project and makes experimentation easier by centralizing parameter management.
 
 ## Dependencies
 
 - **Core**: pandas, numpy, scipy, scikit-learn
 - **ML Models**: implicit (ALS), lightgbm, xgboost
 - **Visualization**: matplotlib, seaborn
-- **Utilities**: pyyaml for configuration
+- **Configuration**: pyyaml for YAML config management
+- **Utilities**: pathlib for path handling
 
 ## Contributing
 
