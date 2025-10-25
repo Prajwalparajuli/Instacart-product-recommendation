@@ -1,36 +1,75 @@
-#Oumayma is responsible for LightGBM (LambdaRank), #which depends on outputs from all previous models — #ALS factors, KNN similarities, and QDA probabilities — #to create the final ranked recommendations.
+"""
+Introduction to the LightGBM LambdaRank Model
 
-#GBDT (LightGBM with LambdaRank)
-#Input needs: Rich feature set combining:
-#ALS latent features
-#Item–item similarity scores
-#QDA predicted probabilities
-#Raw behavioral/categorical features (frequency, #recency, product metadata)
-#Dependency: This is the final stage of the pipeline, #relying on outputs from all previous models.
-#Output: Ranked list of items per user → the final #recommendation system.
-#GBDT (LightGBM LambdaRank) = final ranker → depends on #everything upstream (raw features + ALS + KNN + QDA).
+We are building a model that recommends products to users based on past behavior. 
+For this, we use LightGBM with LambdaRank, which is specially designed for ranking items. 
+
+Here's what that means:
+
+1. Ranking Objective
+
+Instead of just predicting “buy or not buy” for each product, the model learns to rank all products in an order.
+Goal: Put the most likely-to-be-bought products at the top of the list.
+This is different from a regular classifier, which only predicts 0 or 1.
+
+Example:
+If a user has 10 products in their cart, the model will score all 10 and rank them from most likely to buy to least likely.
+
+2. Group Learning
+
+Each order is treated as a group. The model only compares products within the same order.
+This ensures the ranking is relevant for each individual order, not globally across all users.
+
+Example:
+For order #123, the model ranks only products in that order, ignoring products from other orders.
+
+3. Evaluation Metric – NDCG
+
+We use NDCG (Normalized Discounted Cumulative Gain) to measure ranking quality.
+Focuses on top of the list, because the top recommendations matter most.
+Higher NDCG → top products are correctly ranked.
+
+Example:
+If the model predicts the products the user actually buys at the top 5, NDCG score will be high.
+
+4. Features Used
+
+The model only looks at behavioral information, such as:
+
+- How often a user reorders products
+- Average ratings, purchase frequency, etc.
+- IDs are excluded (user_id, product_id, order_id) to prevent the model from “cheating” by memorizing IDs instead of learning patterns.
+
+5. Result
+
+The model outputs top-K recommendations for each order. These recommendations tell the user what they are most likely to buy next.
+
+Example:
+For a given order, the model might rank products like this:
+
+Product A → most likely to buy
+Product B → second most likely
+Product C → third most likely
+
+This helps in personalized recommendations for e-commerce platforms like Instacart.
+"""
 
 
-# Baseline LightGBM Model for Recommendation
+# LightGBM (LambdaRank) Model for Ranking Products
 
 #--------------------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------------------
 
-import pandas as pd 
+import pandas as pd
 import lightgbm as lgb
-from lightgbm import LGBMClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-import matplotlib.pyplot as plt
+from lightgbm import early_stopping, log_evaluation
 
-#These lines load the tools we need:
-    #pandas → for reading and handling data
-    #lightgbm → the machine learning model
-    #sklearn → for splitting data and calculating scores
-    #matplotlib → for plotting feature importance
+# pandas → read and handle data.
+# lightgbm → the machine learning model.
+# early_stopping → stop training if validation doesn’t improve.
+# log_evaluation → print training progress.
 
-
-#--------------
+#-------------
 # 1. Load Data
 
 train = train = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/notebooks/train_candidates.csv")
@@ -40,174 +79,134 @@ test = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/noteb
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
 
-#This loads two files:
-    # train_candidates.csv: the training data (has both features and labels — the correct answers).
-    # test_candidates.csv: new examples for which we’ll make predictions (no labels).
-    # shape just shows how many rows and columns each file has.
+# Training data: has features + label (whether a product was reordered).
+# Test data: only features (we want to predict rankings).
+# The code prints the shape of the data to check the number of rows and columns.
 
-#----------------
-# 2. Prepare Data
+    # Why it matters: You always want to know how big your dataset is before modeling.
 
-drop_cols = ['user_id']
-if 'product_id' in train.columns:
-    drop_cols.append('product_id')
+#---------------------------------------------
+# 2. Prepare Data for what goes into the model
 
-# Separate features and target
-X = train.drop(columns=['label'] + drop_cols, errors='ignore')
-y = train['label']
+ID_COLS = ["user_id", "order_id", "product_id"]
+LABEL_COL = "label"
+GROUP_KEY = "order_id"
 
-# Here’s what’s happening:
-    # We tell the model to ignore user_id and possibly product_id, since those are just identifiers — not useful for learning.
-    # X = all predictor columns (features)
-    # y = target column (labels) — what we want to predict (like reorder yes/no).
+feature_cols = [c for c in train.columns if c not in ID_COLS + [LABEL_COL]]
 
-# So basically:
-    # 👉 X is the “input”
-    # 👉 y is the “answer”
+# Remove identifiers like user_id or product_id—they don’t help the model learn patterns.
+# Keep behavioral features like how often a user orders, average reorder rate, days since last order, etc.
+
+    # Why it matters: Machine learning models learn from patterns, not IDs.
 
 
-# Split for validation
-X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+#-----------------------------------------------
+# 3. Split train into train/validation by orders
 
-#Divide the training data into two parts:
-    # 80% for training (the model learns from this)
-    # 20% for validation (we test how well it generalizes to new data).
-# random_state=42 ensures it splits the same way each time (for consistency).
+all_orders = train['order_id'].unique()
+num_valid_orders = int(0.2 * len(all_orders))  # last 20% orders for validation
+valid_orders = all_orders[-num_valid_orders:]
+
+valid = train[train['order_id'].isin(valid_orders)]
+train_for_model = train[~train['order_id'].isin(valid_orders)]
+
+print("Train orders:", len(train_for_model), "Validation orders:", len(valid))
+
+# Split 20% of the orders for validation.
+# Ensures the model is tested on unseen orders.
+
+    # Why it matters: Prevents overfitting and ensures that model performance is realistic.
 
 
-#--------------------
-# 3. LightGBM Dataset
+#-----------------------------------
+# 4. Build datasets grouped by order
 
-train_data = lgb.Dataset(X_train, label=y_train)
-valid_data = lgb.Dataset(X_valid, label=y_valid)
+def make_dataset(df):
+    df = df.sort_values(GROUP_KEY)
+    X = df[feature_cols]
+    y = df[LABEL_COL].astype(int)
+    group_sizes = df.groupby(GROUP_KEY, sort=False).size().to_numpy()
+    ds = lgb.Dataset(X, label=y, group=group_sizes,
+                     feature_name=feature_cols, free_raw_data=False)
+    return ds, df
 
-# LightGBM works best with its own internal data format called Dataset.
-# Make one for training and one for validation.
+dtrain, train_sorted = make_dataset(train_for_model)
+dvalid, valid_sorted = make_dataset(valid)
 
+# Each order is treated as a group.
+# LightGBM learns to rank products within each order.
+# group_sizes tells the model how many products are in each order.
+
+    # Analogy: Imagine each order as a “mini leaderboard” of products. LambdaRank teaches the model to put the 
+    # most likely bought products at the top.
+ 
 #-----------------------
-# 4. LightGBM Parameters
+# 4. Model configuration
+
+# We tell LightGBM to use LambdaRank (ranking objective):
 
 params = {
-    'objective': 'binary',        
-    'boosting_type': 'gbdt',
-    'metric': ['auc', 'binary_logloss'],
-    'num_leaves': 31,
-    'learning_rate': 0.05,
-    'feature_fraction': 0.9,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'verbosity': -1,
-    'seed': 42
+    "objective": "lambdarank",
+    "metric": "ndcg",
+    "ndcg_eval_at": [5, 10, 20],
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.9,
+    "bagging_freq": 1,
+    "min_data_in_leaf": 50,
+    "random_state": 42,
 }
 
-#These tell LightGBM how to train:
-    # binary → we’re predicting 2 outcomes (yes/no, 1/0).
-    # gbdt → gradient boosting decision trees (the core algorithm).
-    # num_leaves → controls model complexity (like tree size).
-    # learning_rate → how fast it learns (small = safer).
-    # feature_fraction & bagging_fraction → randomly use part of the data and features each round to avoid overfitting.
-    # metric → tells LightGBM to report AUC (quality) and logloss (error).
+# objective = lambdarank: learn ranking, not classification.
+# metric = ndcg: Normalized Discounted Cumulative Gain, measures ranking quality (higher for correctly 
+# ranked top items).
+# learning_rate, num_leaves, feature_fraction → control learning speed, tree complexity, and overfitting.
+
+    # Why it matters: Proper parameters make the model accurate and stable.
 
 #---------------
 # 5. Train Model
 
-from lightgbm import early_stopping, log_evaluation
-
-# LightGBM version 4 changed how early stopping and logging are handled.
-# LightGBM wants you to pass these as callback functions — small helper tools that tell the model when to stop and how often to print progress.
-#   So we import:
-    # early_stopping → to stop training early when it’s not improving anymore.
-    # log_evaluation → to print progress messages (like accuracy or loss every 100 rounds).
-
 model = lgb.train(
-    params, # your model settings (learning rate, depth, etc.)
-    train_set=dtrain, # training data
-    valid_sets=[dtrain, dvalid], # data used to check if the model improves
-    valid_names=['train', 'valid'], # labels for each dataset (for printing results
-    num_boost_round=1000, # max number of boosting rounds
-    callbacks=[early_stopping(stopping_rounds=50), log_evaluation(100)] # list of extra functions controlling training
+    params=params,
+    train_set=dtrain,
+    valid_sets=[dtrain, dvalid],
+    valid_names=["train", "valid"],
+    num_boost_round=1500,
+    callbacks=[early_stopping(stopping_rounds=100), log_evaluation(period=50)],
 )
 
-# This line trains the LightGBM model.
-    # The model starts training for up to 1000 rounds.
-    # Every 100 rounds, log_evaluation(100) prints how well the model is doing on the train and validation sets.
-    # early_stopping(stopping_rounds=50) tells LightGBM:
-        # “If the validation score doesn’t improve for 50 rounds in a row, stop training early — don’t waste time.”
+# Train the model on grouped orders.
+# early_stopping → stop if validation doesn’t improve for 100 rounds.
+# log_evaluation → prints progress every 50 rounds.
 
-# This helps:
-    # prevent overfitting (model getting too good on training data but bad on new data),
-    # save computation time,
-    # and make your training process more efficient and readable.
+    # Why it matters: Training efficiently and preventing overfitting is crucial with millions of rows.
 
-#------------------
-# 6. Evaluate Model
+#------------------------------
+# 6. Ranking on new test orders
 
-y_pred_prob = model.predict(X_valid)
-y_pred = (y_pred_prob > 0.5).astype(int)
+def rank_topk(df, model, k=10):
+    df = df.sort_values(GROUP_KEY).reset_index(drop=True)
+    X = df[feature_cols]
+    scores = model.predict(X, num_iteration=model.best_iteration)
+    out = df[ID_COLS].copy()
+    out["score"] = scores
+    out["rank"] = out.groupby(GROUP_KEY)["score"].rank(ascending=False, method="first")
+    topk = out[out["rank"] <= k].copy()
+    return topk.sort_values([GROUP_KEY, "rank"]) 
 
-print("\nModel Evaluation:")
-print(f"Accuracy: {accuracy_score(y_valid, y_pred):.4f}")
-print(f"F1 Score: {f1_score(y_valid, y_pred):.4f}")
-print(f"ROC-AUC: {roc_auc_score(y_valid, y_pred_prob):.4f}")
+# Predict a score for each product in the test set.
+# Rank products within each order.
+# Keep only top K products (e.g., top 10).
 
-# After training:
-    # The model makes predictions (y_pred_prob = probabilities).
-    # We convert probabilities > 0.5 to class “1” (bought), others “0”.
+    # Why it matters: This creates the final recommendation list for each order.
 
-# Then calculate:
-    # Accuracy → % of correct predictions
-    # F1 Score → balance between precision and recall
-    # ROC-AUC → how well the model separates the two classes
+#------------------------------------
+#7. Predict & rank top-K for test set 
+topk_recs = rank_topk(test, model, k=10)
+topk_recs.to_csv("lightgbm_lambdamart_top10.csv", index=False)
+print("\nSaved top-K recommendations to lightgbm_lambdamart_top10.csv")
 
-#---------------------
-# 7. Feature Importance
-
-importance = model.feature_importance()
-features = X.columns
-
-# Sort by importance
-importance_df = pd.DataFrame({'Feature': features, 'Importance': importance})
-importance_df = importance_df.sort_values(by='Importance', ascending=False)
-
-plt.figure(figsize=(10, 8))
-plt.barh(importance_df['Feature'][:20][::-1], importance_df['Importance'][:20][::-1])
-plt.title('Top 20 Feature Importances (LightGBM)')
-plt.xlabel('Importance')
-plt.ylabel('Feature')
-plt.tight_layout()
-plt.show()
-
-# Collects each feature’s importance score from the model.
-    # Sorts them and plots the top 20.
-
-# Can see which features were most helpful in predicting whether a user will buy a product.
-    # For example, maybe “days_since_prior_order” or “average_reorder_rate” are top features.
-
-#-----------------------
-# 8. Predict on Test Set
-
-X_test = test.drop(columns=drop_cols, errors='ignore')
-test_preds = model.predict(X_test)
-
-# Use the trained model to make predictions on the new (unseen) test data.
-    # Each prediction is a probability of buying the product.
-
-#---------------------
-# 9. Create Submission
-
-submission = pd.DataFrame({
-    'user_id': test['user_id'],
-    'product_id': test['product_id'] if 'product_id' in test.columns else None,
-    'prediction': test_preds
-})
-
-submission.to_csv("lightgbm_baseline_predictions.csv", index=False)
-print("\nSaved predictions to lightgbm_baseline_predictions.csv")
-
-# Create a new table (DataFrame) with:
-    # user_id
-    # product_id
-    # prediction (the model’s output)
-
-#Save it to a file named lightgbm_baseline_predictions.csv.
-    # This is the recommendation output, ready to use.
+# Save top-ranked products for each order to a CSV file.
+# Can be used directly in an application or for evaluation.
