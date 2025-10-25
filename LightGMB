@@ -1,0 +1,213 @@
+#Oumayma is responsible for LightGBM (LambdaRank), #which depends on outputs from all previous models — #ALS factors, KNN similarities, and QDA probabilities — #to create the final ranked recommendations.
+
+#GBDT (LightGBM with LambdaRank)
+#Input needs: Rich feature set combining:
+#ALS latent features
+#Item–item similarity scores
+#QDA predicted probabilities
+#Raw behavioral/categorical features (frequency, #recency, product metadata)
+#Dependency: This is the final stage of the pipeline, #relying on outputs from all previous models.
+#Output: Ranked list of items per user → the final #recommendation system.
+#GBDT (LightGBM LambdaRank) = final ranker → depends on #everything upstream (raw features + ALS + KNN + QDA).
+
+
+# Baseline LightGBM Model for Recommendation
+
+#--------------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------
+
+import pandas as pd 
+import lightgbm as lgb
+from lightgbm import LGBMClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+import matplotlib.pyplot as plt
+
+#These lines load the tools we need:
+    #pandas → for reading and handling data
+    #lightgbm → the machine learning model
+    #sklearn → for splitting data and calculating scores
+    #matplotlib → for plotting feature importance
+
+
+#--------------
+# 1. Load Data
+
+train = train = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/notebooks/train_candidates.csv")
+
+test = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/notebooks/test_candidates.csv")
+
+print("Train shape:", train.shape)
+print("Test shape:", test.shape)
+
+#This loads two files:
+    # train_candidates.csv: the training data (has both features and labels — the correct answers).
+    # test_candidates.csv: new examples for which we’ll make predictions (no labels).
+    # shape just shows how many rows and columns each file has.
+
+#----------------
+# 2. Prepare Data
+
+drop_cols = ['user_id']
+if 'product_id' in train.columns:
+    drop_cols.append('product_id')
+
+# Separate features and target
+X = train.drop(columns=['label'] + drop_cols, errors='ignore')
+y = train['label']
+
+# Here’s what’s happening:
+    # We tell the model to ignore user_id and possibly product_id, since those are just identifiers — not useful for learning.
+    # X = all predictor columns (features)
+    # y = target column (labels) — what we want to predict (like reorder yes/no).
+
+# So basically:
+    # 👉 X is the “input”
+    # 👉 y is the “answer”
+
+
+# Split for validation
+X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+
+#Divide the training data into two parts:
+    # 80% for training (the model learns from this)
+    # 20% for validation (we test how well it generalizes to new data).
+# random_state=42 ensures it splits the same way each time (for consistency).
+
+
+#--------------------
+# 3. LightGBM Dataset
+
+train_data = lgb.Dataset(X_train, label=y_train)
+valid_data = lgb.Dataset(X_valid, label=y_valid)
+
+# LightGBM works best with its own internal data format called Dataset.
+# Make one for training and one for validation.
+
+#-----------------------
+# 4. LightGBM Parameters
+
+params = {
+    'objective': 'binary',        
+    'boosting_type': 'gbdt',
+    'metric': ['auc', 'binary_logloss'],
+    'num_leaves': 31,
+    'learning_rate': 0.05,
+    'feature_fraction': 0.9,
+    'bagging_fraction': 0.8,
+    'bagging_freq': 5,
+    'verbosity': -1,
+    'seed': 42
+}
+
+#These tell LightGBM how to train:
+    # binary → we’re predicting 2 outcomes (yes/no, 1/0).
+    # gbdt → gradient boosting decision trees (the core algorithm).
+    # num_leaves → controls model complexity (like tree size).
+    # learning_rate → how fast it learns (small = safer).
+    # feature_fraction & bagging_fraction → randomly use part of the data and features each round to avoid overfitting.
+    # metric → tells LightGBM to report AUC (quality) and logloss (error).
+
+#---------------
+# 5. Train Model
+
+from lightgbm import early_stopping, log_evaluation
+
+# LightGBM version 4 changed how early stopping and logging are handled.
+# LightGBM wants you to pass these as callback functions — small helper tools that tell the model when to stop and how often to print progress.
+#   So we import:
+    # early_stopping → to stop training early when it’s not improving anymore.
+    # log_evaluation → to print progress messages (like accuracy or loss every 100 rounds).
+
+model = lgb.train(
+    params, # your model settings (learning rate, depth, etc.)
+    train_set=dtrain, # training data
+    valid_sets=[dtrain, dvalid], # data used to check if the model improves
+    valid_names=['train', 'valid'], # labels for each dataset (for printing results
+    num_boost_round=1000, # max number of boosting rounds
+    callbacks=[early_stopping(stopping_rounds=50), log_evaluation(100)] # list of extra functions controlling training
+)
+
+# This line trains the LightGBM model.
+    # The model starts training for up to 1000 rounds.
+    # Every 100 rounds, log_evaluation(100) prints how well the model is doing on the train and validation sets.
+    # early_stopping(stopping_rounds=50) tells LightGBM:
+        # “If the validation score doesn’t improve for 50 rounds in a row, stop training early — don’t waste time.”
+
+# This helps:
+    # prevent overfitting (model getting too good on training data but bad on new data),
+    # save computation time,
+    # and make your training process more efficient and readable.
+
+#------------------
+# 6. Evaluate Model
+
+y_pred_prob = model.predict(X_valid)
+y_pred = (y_pred_prob > 0.5).astype(int)
+
+print("\nModel Evaluation:")
+print(f"Accuracy: {accuracy_score(y_valid, y_pred):.4f}")
+print(f"F1 Score: {f1_score(y_valid, y_pred):.4f}")
+print(f"ROC-AUC: {roc_auc_score(y_valid, y_pred_prob):.4f}")
+
+# After training:
+    # The model makes predictions (y_pred_prob = probabilities).
+    # We convert probabilities > 0.5 to class “1” (bought), others “0”.
+
+# Then calculate:
+    # Accuracy → % of correct predictions
+    # F1 Score → balance between precision and recall
+    # ROC-AUC → how well the model separates the two classes
+
+#---------------------
+# 7. Feature Importance
+
+importance = model.feature_importance()
+features = X.columns
+
+# Sort by importance
+importance_df = pd.DataFrame({'Feature': features, 'Importance': importance})
+importance_df = importance_df.sort_values(by='Importance', ascending=False)
+
+plt.figure(figsize=(10, 8))
+plt.barh(importance_df['Feature'][:20][::-1], importance_df['Importance'][:20][::-1])
+plt.title('Top 20 Feature Importances (LightGBM)')
+plt.xlabel('Importance')
+plt.ylabel('Feature')
+plt.tight_layout()
+plt.show()
+
+# Collects each feature’s importance score from the model.
+    # Sorts them and plots the top 20.
+
+# Can see which features were most helpful in predicting whether a user will buy a product.
+    # For example, maybe “days_since_prior_order” or “average_reorder_rate” are top features.
+
+#-----------------------
+# 8. Predict on Test Set
+
+X_test = test.drop(columns=drop_cols, errors='ignore')
+test_preds = model.predict(X_test)
+
+# Use the trained model to make predictions on the new (unseen) test data.
+    # Each prediction is a probability of buying the product.
+
+#---------------------
+# 9. Create Submission
+
+submission = pd.DataFrame({
+    'user_id': test['user_id'],
+    'product_id': test['product_id'] if 'product_id' in test.columns else None,
+    'prediction': test_preds
+})
+
+submission.to_csv("lightgbm_baseline_predictions.csv", index=False)
+print("\nSaved predictions to lightgbm_baseline_predictions.csv")
+
+# Create a new table (DataFrame) with:
+    # user_id
+    # product_id
+    # prediction (the model’s output)
+
+#Save it to a file named lightgbm_baseline_predictions.csv.
+    # This is the recommendation output, ready to use.
