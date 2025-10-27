@@ -172,27 +172,31 @@ dvalid, valid_sorted = make_dataset(valid)
 #-----------------------
 # 4. Model configuration
 
+# NOTE: LightGBM's GPU support for lambdarank is limited and not well optimized
+# Using CPU with multi-threading is actually faster for ranking tasks
+
 # We tell LightGBM to use LambdaRank (ranking objective):
 
 params = {
     "objective": "lambdarank",
     "metric": "ndcg",
     "ndcg_eval_at": [5, 10, 20],
-    "learning_rate": 0.03,
-    "num_leaves": 63,
-    "feature_fraction": 0.8,
-    "bagging_fraction": 0.8,
+    "learning_rate": 0.01,
+    "num_leaves": 127,
+    "feature_fraction": 0.7,
+    "bagging_fraction": 0.7,
     "bagging_freq": 2,
-    "min_data_in_leaf": 200,
+    "min_data_in_leaf": 300,
     "random_state": 42,
-    "max_depth": 12,
-    "lambda_l1": 0.5,
-    "lambda_l2": 3.0,
-    "device": "gpu",
-    "verbose": -1,
-    "gpu_device_id": 0,
-    "gpu_platform_id": 0
+    "max_depth": 15,
+    "lambda_l1": 1,
+    "lambda_l2": 5.0,
+    "device": "cpu",        # CPU is faster than GPU for lambdarank
+    "num_threads": 0,       
+    "verbose": 1
 }
+
+print(f"Using CPU with all available threads for optimal lambdarank performance")
 
 # objective = lambdarank: learn ranking, not classification.
 # metric = ndcg: Normalized Discounted Cumulative Gain, measures ranking quality (higher for correctly 
@@ -209,7 +213,7 @@ model = lgb.train(
     train_set=dtrain,
     valid_sets=[dtrain, dvalid],
     valid_names=["train", "valid"],
-    num_boost_round = 3000,
+    num_boost_round = 5000,
     callbacks=[early_stopping(stopping_rounds = 150), log_evaluation(50)],
 )
 
