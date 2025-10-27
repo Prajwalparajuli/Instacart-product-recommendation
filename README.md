@@ -11,6 +11,7 @@ This project implements a product recommendation system using the Instacart Mark
 - **Item-Item Similarity**: Cosine similarity between products based on purchase co-occurrence  
 - **Feature Engineering**: User, product, and interaction features for supervised learning
 - **Feature Aggregation**: Combining ALS scores with item-item similarity metrics
+- **Ranking Model**: LightGBM LambdaRank for learning-to-rank product recommendations
 
 ## Dataset
 
@@ -40,7 +41,11 @@ insta-rec/
 │   ├── similarity_agg_als_score.py # ALS+similarity feature aggregation
 │   ├── eval.py               # Model evaluation metrics (stub)
 │   └── utlis.py              # Configuration management and utilities
-├── models/                   # Trained model artifacts
+├── models/
+│   ├── als.py                # ALS matrix factorization model implementation
+│   ├── item_item.py          # Item-item collaborative filtering model
+│   ├── LightGMB.py           # LightGBM LambdaRank ranking model implementation
+│   └── qda.py                # QDA implementation (placeholder)
 ├── reports/                  # Analysis reports and visualizations
 ├── conf.yaml                # Configuration parameters
 ├── requirements.txt          # Python dependencies
@@ -71,17 +76,23 @@ insta-rec/
    - **ALS interaction matrix preparation for collaborative filtering**
    - **ALS+similarity feature aggregation combining multiple signals**
 
+4. **Machine Learning Models**
+   - **ALS (Alternating Least Squares) implementation** ✓ (confidence-weighted matrix factorization)
+   - **Item-Item Collaborative Filtering** ✓ (cosine similarity with top-K selection)
+   - **LightGBM LambdaRank ranking model** ✓ (learning-to-rank implementation)
+   - **Temporal validation splits and model evaluation framework**
+
 ### In Progress
 
-1. **Model Implementation**
-   - ALS (Alternating Least Squares) collaborative filtering ✓ (interaction matrix ready)
-   - Item-item similarity computation ✓ (similarity aggregation implemented)
-   - Supervised learning pipeline integration
+1. **Model Evaluation & Validation**
+   - Model performance comparison framework
+   - Cross-validation and hyperparameter optimization
+   - A/B testing simulation for recommendation quality
 
-2. **Model Training & Evaluation**
-   - QDA (Quadratic Discriminant Analysis) experiments
-   - Gradient boosting model implementation (LightGBM/XGBoost)
-   - Model evaluation metrics and validation framework
+2. **Advanced Experiments**
+   - QDA (Quadratic Discriminant Analysis) implementation
+   - XGBoost ranking model comparison
+   - Ensemble methods combining ALS, item-item, and LambdaRank
 
 ### Planned
 
@@ -92,8 +103,8 @@ insta-rec/
 
 2. **Model Enhancements**
    - Hyperparameter optimization for gradient boosting models
-   - Cross-validation and model selection framework
-   - A/B testing simulation for recommendation evaluation
+   - Ensemble methods combining ALS, similarity, and LambdaRank
+   - Real-time recommendation serving with caching
 
 ## Key Insights from EDA
 
@@ -101,6 +112,44 @@ insta-rec/
 - **Product Categories**: Fresh produce dominates (~40% of orders)
 - **User Behavior**: Power law distribution - few heavy users, many casual shoppers
 - **Reorder Patterns**: High reorder rates for staples like bananas, dairy, and produce
+
+## Model Architecture
+
+The recommendation system implements a **multi-model approach** combining three complementary machine learning techniques:
+
+### 1. ALS (Alternating Least Squares) Matrix Factorization
+
+**Purpose**: Generate user-product affinity scores through collaborative filtering
+- **Confidence Weighting**: Uses `confidence = 1 + alpha * purchase_count` (α=40)
+- **Latent Factors**: 64-dimensional user and item embeddings
+- **Regularization**: L2 penalty (λ=0.1) to prevent overfitting
+- **Output**: Dot product scores for user-product pairs from historical interactions
+
+### 2. Item-Item Collaborative Filtering
+
+**Purpose**: Find similar products based on co-purchase patterns
+- **Similarity Metric**: Cosine similarity between product purchase vectors
+- **Sparse Matrix**: Efficient CSR format for memory optimization
+- **Top-K Selection**: Maintains top-10 similar items per product
+- **Aggregation**: Sum-based candidate scoring for multi-anchor recommendations
+
+### 3. LightGBM LambdaRank Implementation
+
+**Purpose**: Learn-to-rank final product recommendations
+- **Ranking Objective**: Learns to rank products within each order rather than binary classification
+- **Group-wise Learning**: Each order is treated as a ranking group for personalized recommendations
+- **NDCG Evaluation**: Uses Normalized Discounted Cumulative Gain at multiple cutoffs (5, 10, 20)
+- **Feature Engineering**: Excludes IDs to prevent memorization, focuses on behavioral patterns
+
+**Training Strategy:**
+- **Temporal Split**: Last order of each user reserved for validation
+- **Early Stopping**: Prevents overfitting with 150-round patience
+- **Hyperparameter Tuning**: Optimized learning rate, tree depth, and regularization
+
+**Output:**
+- Top-K product recommendations per order (default K=10)
+- Ranking scores for recommendation confidence
+- CSV export for easy integration with applications
 
 ## Setup and Installation
 
@@ -148,13 +197,22 @@ insta-rec/
    python src/build_features.py
    ```
 
-3. **Model Training** 
+3. **Model Training & Ranking** 
    ```bash
    # Build ALS interaction matrix
    python src/als_build_interactions.py
    
+   # Train ALS matrix factorization model
+   python models/als.py
+   
+   # Train item-item collaborative filtering
+   python models/item_item.py
+   
    # Generate combined ALS + similarity features  
    python src/similarity_agg_als_score.py
+   
+   # Train LightGBM LambdaRank model and generate top-K recommendations
+   python models/LightGMB.py
    ```
 
 ## Configuration

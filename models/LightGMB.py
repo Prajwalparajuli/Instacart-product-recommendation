@@ -72,9 +72,9 @@ from lightgbm import early_stopping, log_evaluation
 #-------------
 # 1. Load Data
 
-train = train = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/notebooks/train_candidates.csv")
+train = pd.read_csv("Data/processed/train_candidates.csv")
 
-test = pd.read_csv("/Users/momoba/Desktop/Instacart-product-recommendation/notebooks/test_candidates.csv")
+test = pd.read_csv("Data/processed/test_candidates.csv")
 
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
@@ -94,6 +94,17 @@ GROUP_KEY = "order_id"
 
 feature_cols = [c for c in train.columns if c not in ID_COLS + [LABEL_COL]]
 
+# Sanity check to fails fast if data is not shaped as expected
+required = set(ID_COLS + [LABEL_COL])
+missing = required - set(train.columns)
+
+if missing:
+    raise ValueError(f"Missing columns in train data: {missing}")
+
+if not feature_cols:
+    raise ValueError("No feature columns found for modeling.")
+print(f"Using {len(feature_cols)} features for modeling.")
+
 # Remove identifiers like user_id or product_id—they don’t help the model learn patterns.
 # Keep behavioral features like how often a user orders, average reorder rate, days since last order, etc.
 
@@ -103,16 +114,21 @@ feature_cols = [c for c in train.columns if c not in ID_COLS + [LABEL_COL]]
 #-----------------------------------------------
 # 3. Split train into train/validation by orders
 
-all_orders = train['order_id'].unique()
-num_valid_orders = int(0.2 * len(all_orders))  # last 20% orders for validation
-valid_orders = all_orders[-num_valid_orders:]
+# This takes the last order of each user as validation 
+last_order = train.groupby("user_id", as_index = False)["order_number"].max().rename(columns = {"order_number":"last_order_id"})
 
-valid = train[train['order_id'].isin(valid_orders)]
-train_for_model = train[~train['order_id'].isin(valid_orders)]
+# Merge onto the train set to identify last orders
+train_merged = train.merge(last_order, on = "user_id", how = "left")
+
+# Validation set: last orders of each user
+valid = train_merged[train_merged['order_id'] == train_merged['last_order_id']].copy()
+
+# Training set: all other orders
+train_for_model = train_merged[train_merged['order_id'] != train_merged['last_order_id']].copy()
 
 print("Train orders:", len(train_for_model), "Validation orders:", len(valid))
 
-# Split 20% of the orders for validation.
+# Split last order of each user for validation.
 # Ensures the model is tested on unseen orders.
 
     # Why it matters: Prevents overfitting and ensures that model performance is realistic.
@@ -122,7 +138,7 @@ print("Train orders:", len(train_for_model), "Validation orders:", len(valid))
 # 4. Build datasets grouped by order
 
 def make_dataset(df):
-    df = df.sort_values(GROUP_KEY)
+    df = df.sort_values(GROUP_KEY).reset_index(drop=True)
     X = df[feature_cols]
     y = df[LABEL_COL].astype(int)
     group_sizes = df.groupby(GROUP_KEY, sort=False).size().to_numpy()
@@ -149,13 +165,16 @@ params = {
     "objective": "lambdarank",
     "metric": "ndcg",
     "ndcg_eval_at": [5, 10, 20],
-    "learning_rate": 0.05,
+    "learning_rate": 0.03,
     "num_leaves": 63,
-    "feature_fraction": 0.9,
-    "bagging_fraction": 0.9,
-    "bagging_freq": 1,
-    "min_data_in_leaf": 50,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 2,
+    "min_data_in_leaf": 200,
     "random_state": 42,
+    "max_depth": 12,
+    "lambda_l1": 0.5,
+    "lambda_l2": 3.0
 }
 
 # objective = lambdarank: learn ranking, not classification.
@@ -173,12 +192,12 @@ model = lgb.train(
     train_set=dtrain,
     valid_sets=[dtrain, dvalid],
     valid_names=["train", "valid"],
-    num_boost_round=1500,
-    callbacks=[early_stopping(stopping_rounds=100), log_evaluation(period=50)],
+    num_boost_round = 3000,
+    callbacks=[early_stopping(stopping_rounds = 150), log_evaluation(50)],
 )
 
 # Train the model on grouped orders.
-# early_stopping → stop if validation doesn’t improve for 100 rounds.
+# early_stopping → stop if validation doesn’t improve for 150 rounds.
 # log_evaluation → prints progress every 50 rounds.
 
     # Why it matters: Training efficiently and preventing overfitting is crucial with millions of rows.
@@ -187,6 +206,11 @@ model = lgb.train(
 # 6. Ranking on new test orders
 
 def rank_topk(df, model, k=10):
+    # Sanity check to fails fast if data is not shaped as expected
+    for c in ID_COLS:
+        if c not in df.columns:
+            raise ValueError(f"Missing column in test data: {c}")
+
     df = df.sort_values(GROUP_KEY).reset_index(drop=True)
     X = df[feature_cols]
     scores = model.predict(X, num_iteration=model.best_iteration)

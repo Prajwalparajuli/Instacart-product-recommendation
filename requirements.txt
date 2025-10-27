@@ -1,19 +1,28 @@
-# Core scientific stack
+# Core scientific computing stack
 pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
 scikit-learn>=1.3.0
 
-# Gradient boosting libraries
+# Data visualization and analysis
+matplotlib>=3.7.0
+seaborn>=0.12.0
+jupyter>=1.0.0
+ipykernel>=6.20.0
+
+# Machine learning models
 lightgbm>=4.0.0
 xgboost>=1.7.0
 
-# Matrix factorization (ALS)
-# implicit builds C++ extensions, requires a compiler on Windows (Visual Studio Build Tools)
+# Matrix factorization (ALS collaborative filtering)
+# Note: implicit builds C++ extensions, requires Visual Studio Build Tools on Windows
 implicit>=0.7.2
 
-# Model explainability
+# Model explainability and evaluation
 shap>=0.44.0
 
-# Config handling
+# Configuration and utilities
 pyyaml>=6.0.0
+
+# Development and data processing
+tqdm>=4.65.0     # Progress bars for long-running operations
