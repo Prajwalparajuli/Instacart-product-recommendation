@@ -80,6 +80,8 @@ train = pd.read_csv("Data/processed/train_candidates.csv")
 
 test = pd.read_csv("Data/processed/test_candidates.csv")
 
+
+
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
 print("Train columns:", train.columns.tolist())
@@ -130,10 +132,8 @@ n_val_users = int(len(unique_users) * 0.2)  # 20% for validation
 val_users = np.random.choice(unique_users, size=n_val_users, replace=False)
 val_user_set = set(val_users)
 
-# Split data by user_id
 train_for_model = train[~train['user_id'].isin(val_user_set)].copy()
 valid = train[train['user_id'].isin(val_user_set)].copy()
-
 print(f"Train: {len(train_for_model):,} rows ({len(train_for_model['user_id'].unique()):,} users)")
 print(f"Valid: {len(valid):,} rows ({len(valid['user_id'].unique()):,} users)")
 
@@ -147,7 +147,11 @@ print(f"Valid: {len(valid):,} rows ({len(valid['user_id'].unique()):,} users)")
 # 4. Build datasets grouped by order
 
 def make_dataset(df):
-    df = df.sort_values(GROUP_KEY).reset_index(drop=True)
+    """Sort by GROUP KEY so row order == group order, 
+    then compute group sizes with sort = False (preserve appearance order)"""
+
+
+    df = df.sort_values([GROUP_KEY,"product_id"]).reset_index(drop=True)
     X = df[feature_cols]
     y = df[LABEL_COL].astype(int)
     group_sizes = df.groupby(GROUP_KEY, sort=False).size().to_numpy()
@@ -184,7 +188,7 @@ params = {
     "max_depth": 12,
     "lambda_l1": 0.5,
     "lambda_l2": 3.0,
-    "device_type": "gpu",
+    "device": "gpu",
     "verbose": -1,
     "gpu_device_id": 0,
     "gpu_platform_id": 0
@@ -218,7 +222,7 @@ model = lgb.train(
 #------------------------------
 # 6. Ranking on new test orders
 
-def rank_topk(df, model, k=10):
+def rank_topk(df: pd.DataFrame, model, k=10):
     # Sanity check to fails fast if data is not shaped as expected
     for c in ID_COLS:
         if c not in df.columns:

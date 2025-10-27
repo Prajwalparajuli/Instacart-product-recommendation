@@ -21,6 +21,21 @@ als_sim_features = pd.read_csv(ALS_SIM_PATH)
 
 print("Loaded ALS + similarity features")
 
+# Ensure (user_id, product_id) uniqueness and dtype alignment before merging 
+id_cols = ["user_id", "product_id"]
+for c in id_cols:
+    if c not in als_sim_features.columns:
+        als_sim_features[c] = als_sim_features[c].astype("int64")
+
+if als_sim_features.duplicated(subset=id_cols).any():
+    # Collapse duplicates conservatively: adjust aggs if your column names differ
+    als_sim_features = (als_sim_features.groupby(id_cols, observed=True)
+                        .agg({"als_score": "mean",
+                        "sim_max": "max",
+                        "sim_mean": "mean",
+                        "sim_topk_mean_10": "mean",
+                        "sim_nonzero_cnt": "sum"}))
+
 # Load csv via ingest.py
 dfs = load_all()
 orders = dfs["orders"]
@@ -31,6 +46,16 @@ aisles = dfs["aisles"]
 departments = dfs["departments"]
 
 print("Loaded from ingest.load_all()")
+
+# Normalize key dtypes to avoid silent joint mismatches
+orders["user_id"] = orders["user_id"].astype("int64")
+orders["order_id"] = orders["order_id"].astype("int64")
+
+op_prior["order_id"] = op_prior["order_id"].astype("int64")
+op_train["order_id"] = op_train["order_id"].astype("int64")
+
+op_prior["product_id"] = op_prior["product_id"].astype("int64")
+op_train["product_id"] = op_train["product_id"].astype("int64")
 
 # Derive splits of prior, train, test from orders
 orders_prior = orders.loc[orders.eval_set == "prior"].copy()
@@ -115,10 +140,7 @@ up_features = pd.DataFrame({
     "up_last_order_number": up_grp["order_number"].max(),
     "up_first_order_number": up_grp["order_number"].min(),
     "up_avg_add_to_cart": up_grp["add_to_cart_order"].mean()
-})
-
-# reset index so up_features is column, not index
-up_features = up_features.reset_index(drop=True)
+}).reset_index(drop=True)
 
 # Compute recency
 u_last_prior_order = prior.groupby("user_id")["order_number"].max()
@@ -138,7 +160,7 @@ up_features["user_total_bought"] = up_features["user_id"].map(user_total_bought_
 
 # final rate calculation
 up_features["up_rate_in_user_history"] = (
-    up_features["up_times_bought"] / up_features["user_total_bought"])
+    up_features["up_times_bought"] / up_features["user_total_bought"]).replace({0: np.nan}).fillna(0)
 
 print(f"User-product features shape: {up_features.shape}")
 
@@ -174,11 +196,14 @@ missing_cols = required_cols - set(als_sim_features.columns)
 if missing_cols:
     raise ValueError(f"Missing columns in ALS/similarity features: {missing_cols}")
 
+dup_check_cols = ['user_id', 'order_id' ,'product_id']
+
 # Merge onto candidate pairs
 train_candidates = (train_candidates.merge(als_sim_features,
                                            on=["user_id", "product_id"],
                                            how="left"))
-
+if train_candidates.duplicated(subset=dup_check_cols).any():
+    raise ValueError("Duplicates found in train_candidates after merging ALS/similarity features, ensure uniqueness of (user_id, order_id, product_id)")
 
 # Fill missing numeric values with 0 so the model interprets then as no signal
 for col in ["als_score", "sim_max", "sim_mean", "sim_topk_mean_10"]:
@@ -205,16 +230,14 @@ test_candidates = (test_base.merge(user_prior_products,
 print(f"Test candidates after expansion: {len(test_candidates):,} rows")
 # testing size 4,833,292 rows
 
-# Merge ALS + similarity features into test candidates
-required_cols = {"user_id", "product_id"}
-missing_cols = required_cols - set(als_sim_features.columns)
-if missing_cols:
-    raise ValueError(f"Missing columns in ALS/similarity features: {missing_cols}")
-
 # Merge ALS + similarity onto candidate pairs
 test_candidates = (test_candidates.merge(als_sim_features,
                                          on=["user_id", "product_id"],
                                          how="left"))
+
+if test_candidates.duplicated(subset=dup_check_cols).any():
+    raise ValueError("Duplicates found in test_candidates after expansion, ensure uniqueness of (user_id, product_id)")
+
 
 # Fill missing numeric values with 0 so the model interprets then as no signal
 for col in ["als_score", "sim_max", "sim_mean", "sim_topk_mean_10"]:
@@ -238,10 +261,18 @@ test_candidates = (test_candidates.merge(user_features, on="user_id", how="left"
                                      merge(product_features, on="product_id", how="left").
                                      merge(up_features, on=["user_id", "product_id"], how="left"))
 
-# Fill missing values
+# Fill missing numeric feature columns only (do not overwrite IDs or labels)
 print("Filling missing values...")
-train_candidates = train_candidates.fillna(0)
-test_candidates = test_candidates.fillna(0)
+
+def fill_numeric_features(df, exclude = ("order_id", "user_id", "product_id", "label")):
+    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    num_cols = [c for c in num_cols if c not in exclude]
+    if num_cols:
+        df[num_cols] = df[num_cols].fillna(0)
+    return df
+
+train_candidates = fill_numeric_features(train_candidates)
+test_candidates = fill_numeric_features(test_candidates)
 
 print("Train dataset ready for training:", 
       f"rows = {len(train_candidates):,}, columns = {len(train_candidates.columns)}")
@@ -253,6 +284,22 @@ print("Test dataset ready for inference",
 
 # rows = 4,833,292, columns =  31
 
+# Final Sanity checks
+bad_users = (train_candidates.groupby("user_id")["order_id"].nunique() > 1)
+if bad_users.any():
+    n_bad = int(bad_users.sum())
+    raise AssertionError(f"{n_bad} users have multiple order_ids in train_candidates, expected uniqueness per (user_id, order_id)")
+
+allowed = set(train_candidates["label"].unique())
+if not allowed <= {0, 1}:
+    raise AssertionError(f"Unexpected label values in train_candidates: {allowed}, expected only 0 and 1")
+
+# Sort train rows by users (within user by order/product)
+train_candidates = train_candidates.sort_values(by=["user_id", "order_id", "product_id"]).reset_index(drop=True)
+
+# Sort test rows by users (within user by order/product)
+test_candidates = test_candidates.sort_values(by=["user_id", "order_id", "product_id"]).reset_index(drop=True)
+
 # Save outputs
 train_out = PROCESSED / "train_candidates.csv"
 test_out = PROCESSED / "test_candidates.csv"
@@ -262,5 +309,14 @@ train_candidates.to_csv(train_out, index=False)
 print("Saving test candidates...")
 test_candidates.to_csv(test_out, index=False)
 
+group_sizes = train_candidates.groupby("user_id", sort = False).size().tolist()
+
+# Group size for LambdaRank
+group_out = PROCESSED / "train_groups_lambdarank.txt"
+with open(group_out, "w") as f:
+    f.write('\n'.join(str(int(x)) for x in group_sizes))
+
+
 print("Saved train candidates to:", train_out)
 print("Saved test candidates to:", test_out)
+
