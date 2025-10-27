@@ -61,12 +61,14 @@ This helps in personalized recommendations for e-commerce platforms like Instaca
 #--------------------------------------------------------------------------------------------------
 
 import pandas as pd
+import numpy as np
 import lightgbm as lgb
 from lightgbm import early_stopping, log_evaluation
 
 # pandas → read and handle data.
+# numpy → numerical operations and random sampling.
 # lightgbm → the machine learning model.
-# early_stopping → stop training if validation doesn’t improve.
+# early_stopping → stop training if validation doesn't improve.
 # log_evaluation → print training progress.
 
 #-------------
@@ -78,6 +80,7 @@ test = pd.read_csv("Data/processed/test_candidates.csv")
 
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
+print("Train columns:", train.columns.tolist())
 
 # Training data: has features + label (whether a product was reordered).
 # Test data: only features (we want to predict rankings).
@@ -112,21 +115,25 @@ print(f"Using {len(feature_cols)} features for modeling.")
 
 
 #-----------------------------------------------
-# 3. Split train into train/validation by orders
+# 3. Split train into train/validation by users (percentage-based)
 
-# This takes the last order of each user as validation 
-last_order = train.groupby("user_id", as_index = False)["order_number"].max().rename(columns = {"order_number":"last_order_id"})
+# Since train_candidates.csv likely has only one order per user,
+# we'll split by users instead of orders: 80% users for training, 20% for validation
 
-# Merge onto the train set to identify last orders
-train_merged = train.merge(last_order, on = "user_id", how = "left")
+np.random.seed(42)  # For reproducibility
+unique_users = train['user_id'].unique()
+n_val_users = int(len(unique_users) * 0.2)  # 20% for validation
 
-# Validation set: last orders of each user
-valid = train_merged[train_merged['order_id'] == train_merged['last_order_id']].copy()
+# Randomly select validation users
+val_users = np.random.choice(unique_users, size=n_val_users, replace=False)
+val_user_set = set(val_users)
 
-# Training set: all other orders
-train_for_model = train_merged[train_merged['order_id'] != train_merged['last_order_id']].copy()
+# Split data by user_id
+train_for_model = train[~train['user_id'].isin(val_user_set)].copy()
+valid = train[train['user_id'].isin(val_user_set)].copy()
 
-print("Train orders:", len(train_for_model), "Validation orders:", len(valid))
+print(f"Train: {len(train_for_model):,} rows ({len(train_for_model['user_id'].unique()):,} users)")
+print(f"Valid: {len(valid):,} rows ({len(valid['user_id'].unique()):,} users)")
 
 # Split last order of each user for validation.
 # Ensures the model is tested on unseen orders.
@@ -174,7 +181,11 @@ params = {
     "random_state": 42,
     "max_depth": 12,
     "lambda_l1": 0.5,
-    "lambda_l2": 3.0
+    "lambda_l2": 3.0,
+    "device_type": "gpu",
+    "verbose": -1,
+    "gpu_device_id": 0,
+    "gpu_platform_id": 0
 }
 
 # objective = lambdarank: learn ranking, not classification.
