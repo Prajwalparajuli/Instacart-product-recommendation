@@ -1,4 +1,4 @@
-###train ALS (implicit matrix factorization) to produce condidate intems.###
+###Train ALS (implicit matrix factorization) to produce candidate items.###
 
 # Build the confidence weighted user-product matrix
 """ This step takes the processed Coordinate sparse matrix (COO) file (row = user_index, col=product_index, val=count)
