@@ -1,0 +1,23 @@
+{
+  "frozen": "assets/thumbnails/frozen.jpg",
+  "other": "assets/thumbnails/other.jpg",
+  "bakery": "assets/thumbnails/bakery.jpg",
+  "produce": "assets/thumbnails/produce.jpg",
+  "alcohol": "assets/thumbnails/alcohol.jpg",
+  "international": "assets/thumbnails/international.jpg",
+  "beverages": "assets/thumbnails/beverages.jpg",
+  "pets": "assets/thumbnails/pets.jpg",
+  "dry goods pasta": "assets/thumbnails/dry-goods-pasta.jpg",
+  "bulk": "assets/thumbnails/bulk.jpg",
+  "personal care": "assets/thumbnails/personal-care.jpg",
+  "meat seafood": "assets/thumbnails/meat-seafood.jpg",
+  "pantry": "assets/thumbnails/pantry.jpg",
+  "breakfast": "assets/thumbnails/breakfast.jpg",
+  "canned goods": "assets/thumbnails/canned-goods.jpg",
+  "dairy eggs": "assets/thumbnails/dairy-eggs.jpg",
+  "household": "assets/thumbnails/household.jpg",
+  "babies": "assets/thumbnails/babies.jpg",
+  "snacks": "assets/thumbnails/snacks.jpg",
+  "deli": "assets/thumbnails/deli.jpg",
+  "missing": "assets/thumbnails/missing.jpg"
+}
