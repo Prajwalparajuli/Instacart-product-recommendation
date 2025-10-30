@@ -1,0 +1,10 @@
+[theme]
+base="light"
+primaryColor="#10B981"                 # green
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F8FAFC"
+textColor="#111827"
+font="sans serif"
+
+[server]
+enableXsrfProtection = true

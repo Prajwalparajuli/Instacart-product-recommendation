@@ -1,0 +1,30 @@
+/* Card polish */
+.block-container { padding-top: 1rem; }
+.instacard {
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+  padding: 10px;
+  border: 1px solid #eef2f7;
+  transition: transform .06s ease, box-shadow .12s ease;
+}
+.instacard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.10);
+}
+.title-2lines {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background:#eef2ff; color:#374151;
+  border: 1px solid #e5e7eb;
+}
+.header {
+  display:flex; gap:14px; align-items:center; justify-content:space-between; margin-bottom:10px;
+  padding: 8px 12px; border-bottom: 1px solid #eef2f7; position: sticky; top: 0; background: #ffffff; z-index: 10;
+}
+.header-left { display:flex; gap:12px; align-items:center; }
+.header-right { display:flex; gap:12px; align-items:center; }
+.cart-chip {
+  display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:#ecfdf5; color:#065f46; border:1px solid #d1fae5;
+}
+.searchbox input { border-radius: 12px !important; }
