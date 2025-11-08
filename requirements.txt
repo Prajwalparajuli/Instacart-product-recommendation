@@ -21,8 +21,15 @@ implicit>=0.7.2
 # Model explainability and evaluation
 shap>=0.44.0
 
+# Web application
+streamlit>=1.28.0
+pillow>=10.0.0
+
 # Configuration and utilities
 pyyaml>=6.0.0
+
+# Model serialization
+joblib>=1.3.0
 
 # Development and data processing
 tqdm>=4.65.0     # Progress bars for long-running operations
