@@ -66,6 +66,8 @@ import pandas as pd
 import numpy as np
 import lightgbm as lgb
 from lightgbm import early_stopping, log_evaluation
+from pathlib import Path
+import json
 
 # pandas → read and handle data.
 # numpy → numerical operations and random sampling.
@@ -79,8 +81,6 @@ from lightgbm import early_stopping, log_evaluation
 train = pd.read_csv("Data/processed/train_candidates.csv")
 
 test = pd.read_csv("Data/processed/test_candidates.csv")
-
-
 
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
@@ -181,22 +181,37 @@ params = {
     "objective": "lambdarank",
     "metric": "ndcg",
     "ndcg_eval_at": [5, 10, 20],
-    "learning_rate": 0.01,
-    "num_leaves": 127,
-    "feature_fraction": 0.7,
-    "bagging_fraction": 0.7,
-    "bagging_freq": 2,
-    "min_data_in_leaf": 300,
+    
+    # Learning parameters - balanced approach
+    "learning_rate": 0.02,          # Moderate learning rate
+    "num_boost_round": 5000,
+    
+    # Tree structure - moderate complexity to prevent overfitting
+    "num_leaves": 127,              # Good balance
+    "max_depth": 15,                # Moderate depth
+    "min_data_in_leaf": 300,        # Higher to prevent overfitting
+    "min_gain_to_split": 0.0,     # Small positive gain required
+    
+    # Sampling parameters - good generalization
+    "feature_fraction": 1.0,        
+    "bagging_fraction": 0.75,        
+    "bagging_freq": 2,              
+    
+    # Regularization - moderate penalties
+    "lambda_l1": 1.0,               
+    "lambda_l2": 5.0,               # Moderate L2 regularization
+    "min_sum_hessian_in_leaf": 20,  # Higher for stability
+    
+    # System parameters
+    "device": "cpu",
+    "num_threads": 0,               
     "random_state": 42,
-    "max_depth": 15,
-    "lambda_l1": 1,
-    "lambda_l2": 5.0,
-    "device": "cpu",        # CPU is faster than GPU for lambdarank
-    "num_threads": 0,       
-    "verbose": 1
+    "verbose": 1,
+    "force_row_wise": True          
 }
 
 print(f"Using CPU with all available threads for optimal lambdarank performance")
+print(f"Model configuration: {params['num_leaves']} leaves, LR={params['learning_rate']}, max_depth={params['max_depth']}")
 
 # objective = lambdarank: learn ranking, not classification.
 # metric = ndcg: Normalized Discounted Cumulative Gain, measures ranking quality (higher for correctly 
@@ -227,10 +242,16 @@ model = lgb.train(
 # 6. Ranking on new test orders
 
 def rank_topk(df: pd.DataFrame, model, k=10):
-    # Sanity check to fails fast if data is not shaped as expected
+    # Sanity check to fail fast if data is not shaped as expected
     for c in ID_COLS:
         if c not in df.columns:
             raise ValueError(f"Missing column in test data: {c}")
+    
+    # Check if feature columns exist in the dataframe
+    missing_features = [c for c in feature_cols if c not in df.columns]
+    if missing_features:
+        raise ValueError(f"Missing feature columns in test data: {missing_features}. "
+                        f"Test data only has columns: {df.columns.tolist()}")
 
     df = df.sort_values(GROUP_KEY).reset_index(drop=True)
     X = df[feature_cols]
@@ -250,8 +271,33 @@ def rank_topk(df: pd.DataFrame, model, k=10):
 #------------------------------------
 #7. Predict & rank top-K for test set 
 topk_recs = rank_topk(test, model, k=10)
-topk_recs.to_csv("lightgbm_lambdamart_top10.csv", index=False)
-print("\nSaved top-K recommendations to lightgbm_lambdamart_top10.csv")
+topk_recs.to_csv("data/processed/lightgbm_lambdamart_top10.csv", index=False)
+topk_recs.to_parquet("data/processed/lightgbm_lambdamart_top10.parquet", index = False)
+print("\nSaved top-K recommendations to data/processed/lightgbm_lambdamart_top10.csv")
 
 # Save top-ranked products for each order to a CSV file.
 # Can be used directly in an application or for evaluation.
+
+# Save artifacts
+ARTIFACT_DIR = Path("models/lightgbm_ranker")
+ARTIFACT_DIR.mkdir(parents = True, exist_ok = True)
+
+# Save LightGBM booster
+model.save_model(str(ARTIFACT_DIR/ "lgbm_lambdarank.txt"),
+                 num_iteration = model.best_iteration)
+
+# Save feature column used at training time
+with open(ARTIFACT_DIR / "feature_cols.json", "w") as f:
+    json.dump(feature_cols, f)
+
+# Save minimal schema/config the app needs
+schema = {"group_key" : "order_id",
+          "id_cols" : ["user_id", "order_id", "product_id"],
+          "k" : 10,
+          "ncdg_eval_at" :[5, 10, 20],
+           "best_iteration" : int(model.best_iteration)}
+with open(ARTIFACT_DIR / "schema.json", "w") as f:
+    json.dump(schema, f, indent = 2)
+
+print("Saved model + metadata to models/lightgbm_ranker/")
+

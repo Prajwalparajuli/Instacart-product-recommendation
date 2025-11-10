@@ -1,3 +1,4 @@
+# Data files
 csv_files/order_products__prior.csv
 csv_files/orders.csv
 data/raw/orders.csv
@@ -6,3 +7,29 @@ data/
 item_item_basket.csv
 item_item_product_counts.csv
 csv_files
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Deployment folder (managed separately)
+hf-deployment/

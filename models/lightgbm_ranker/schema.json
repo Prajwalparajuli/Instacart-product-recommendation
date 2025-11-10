@@ -1,0 +1,15 @@
+{
+  "group_key": "order_id",
+  "id_cols": [
+    "user_id",
+    "order_id",
+    "product_id"
+  ],
+  "k": 10,
+  "ncdg_eval_at": [
+    5,
+    10,
+    20
+  ],
+  "best_iteration": 764
+}

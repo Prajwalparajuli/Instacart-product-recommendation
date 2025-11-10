@@ -1,7 +1,5 @@
 # Understanding LightGBM Ranking Scores
 
-## 🤔 Your Questions Answered
-
 ### Q1: "How is order_id relevant when recommending products?"
 
 **Answer:** `order_id` is the **context** for the recommendation, not the thing being recommended.
