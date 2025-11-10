@@ -1,0 +1,28 @@
+{
+  "data": "C:\\Users\\prajw\\Desktop\\Statistical and Machine Learning\\Project\\insta-rec\\data\\processed\\valid_candidates.csv",
+  "model": "C:\\Users\\prajw\\Desktop\\Statistical and Machine Learning\\Project\\insta-rec\\models\\lightgbm_ranker\\lgbm_lambdarank.txt",
+  "features": "C:\\Users\\prajw\\Desktop\\Statistical and Machine Learning\\Project\\insta-rec\\models\\lightgbm_ranker\\feature_cols.json",
+  "group_key": "order_id",
+  "label_col": "label",
+  "ks": [
+    5,
+    10,
+    20
+  ],
+  "overall": {
+    "ndcg@5": 0.49626481303756903,
+    "map@5": 0.6059773403791353,
+    "recall@5": 0.8091536145726154,
+    "hitrate@5": 0.8091536145726154,
+    "ndcg@10": 0.5210434412688455,
+    "map@10": 0.5686406296901767,
+    "recall@10": 0.8731755649556038,
+    "hitrate@10": 0.8731755649556038,
+    "ndcg@20": 0.574821402423393,
+    "map@20": 0.5212541620678718,
+    "recall@20": 0.9114744102739987,
+    "hitrate@20": 0.9114744102739987
+  },
+  "groups": 26241,
+  "rows_scored": 1696883
+}

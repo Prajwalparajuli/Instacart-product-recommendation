@@ -78,9 +78,9 @@ import json
 #-------------
 # 1. Load Data
 
-train = pd.read_csv("Data/processed/train_candidates.csv")
+train = pd.read_csv("data/processed/train_candidates.csv")
 
-test = pd.read_csv("Data/processed/test_candidates.csv")
+test = pd.read_csv("data/processed/test_candidates.csv")
 
 print("Train shape:", train.shape)
 print("Test shape:", test.shape)
@@ -162,6 +162,10 @@ def make_dataset(df):
 dtrain, train_sorted = make_dataset(train_for_model)
 dvalid, valid_sorted = make_dataset(valid)
 
+# Saving the validation data sorted by order for later analysis.
+validation_df = pd.DataFrame(valid_sorted)
+validation_df.to_csv("data/processed/valid_candidates.csv", index=False)
+
 # Each order is treated as a group.
 # LightGBM learns to rank products within each order.
 # group_sizes tells the model how many products are in each order.
@@ -184,13 +188,12 @@ params = {
     
     # Learning parameters - balanced approach
     "learning_rate": 0.02,          # Moderate learning rate
-    "num_boost_round": 5000,
-    
+        
     # Tree structure - moderate complexity to prevent overfitting
     "num_leaves": 127,              # Good balance
     "max_depth": 15,                # Moderate depth
     "min_data_in_leaf": 300,        # Higher to prevent overfitting
-    "min_gain_to_split": 0.0,     # Small positive gain required
+    "min_gain_to_split": 0.0,    
     
     # Sampling parameters - good generalization
     "feature_fraction": 1.0,        
@@ -294,7 +297,7 @@ with open(ARTIFACT_DIR / "feature_cols.json", "w") as f:
 schema = {"group_key" : "order_id",
           "id_cols" : ["user_id", "order_id", "product_id"],
           "k" : 10,
-          "ncdg_eval_at" :[5, 10, 20],
+          "ndcg_eval_at" :[5, 10, 20],
            "best_iteration" : int(model.best_iteration)}
 with open(ARTIFACT_DIR / "schema.json", "w") as f:
     json.dump(schema, f, indent = 2)
