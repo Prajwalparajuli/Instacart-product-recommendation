@@ -78,7 +78,7 @@ insta-rec/
 │   │   └── utlis.py              # Config management utilities
 │   │
 │   └── Deployment Utilities:
-│       ├── create_demo_dataset.py    # Generate demo data (10 users)
+│       ├── create_demo_dataset.py    # Generate demo data (configurable users)
 │       └── prepare_deployment.py     # Build HF Spaces deployment folder
 │
 ├── models/                       # 🤖 Machine Learning Models
@@ -87,7 +87,7 @@ insta-rec/
 │   │   └── feature_cols.json
 │   ├── als.py                    # ALS matrix factorization training
 │   ├── item_item.py              # Item-Item CF training
-│   ├── LightGMB.py               # LightGBM LambdaRank training
+│   ├── LightGBM.py               # LightGBM LambdaRank training
 │   └── qda.py                    # QDA model training
 │
 ├── assets/                       # 🖼️ Product Images
@@ -156,7 +156,7 @@ insta-rec/
    - Demo dataset with 5 users (synchronized across all data sources)
    - Docker configuration for HF Spaces deployment
    - GitHub + HF Spaces dual repository workflow
-   - Complete documentation and deployment guides94 pages
+   - Complete documentation and deployment guides
    - **Model Insights Dashboard** showing feature importance and metrics
    - **Deployment Ready** for Hugging Face Spaces
 
@@ -195,7 +195,7 @@ insta-rec/
 - ✅ Docker SDK deployment (~64 MB total, optimized for HF Spaces)
 - ✅ Automatic health checks and proper container configuration
 - ✅ Separate GitHub and HF Spaces repository workflow
-- ✅ Production-ready with error handling and fallback recommendationsflow
+- ✅ Production-ready with error handling and fallback recommendations
 - ✅ One-command deployment preparation
 
 ## 🎯 Key Features
@@ -216,7 +216,7 @@ insta-rec/
 ### Production Ready
 - ⚡ **Optimized Performance** with lazy loading and caching
 - 🚀 **HF Spaces Deployment** ready (~746 MB total)
-- 👥 **Demo Mode** with 10 representative users
+- 👥 **Demo Mode** with 5 representative users
 - 📦 **One-Command Deployment** preparation
 
 ## 💡 Key Insights from EDA
@@ -318,11 +318,6 @@ The app includes:
 - Interactive shopping cart with session persistence
 - Product catalog with 49K+ products and department images
 - Purchase history integration showing previous orders
-The app includes:
-- 10 demo users with full purchase history
-- Hybrid recommendations from 3 models
-- Interactive shopping cart
-- Product catalog with 49K+ products
 
 ### 📊 Full Training Pipeline
 
@@ -350,11 +345,11 @@ The app includes:
    # Train item-item collaborative filtering
    python models/item_item.py
    
-   # Generate combined ALS + similarity features  
-   python src/similarity_agg_als_score.py
+   # (Optional) Generate combined ALS + similarity features
+   # If you have a similarity aggregation script, run it here
    
    # Train LightGBM LambdaRank model and generate recommendations
-   python models/LightGMB.py
+   python models/LightGBM.py
    ```
 
 ### 🌐 Deployment to Hugging Face Spaces
@@ -398,12 +393,6 @@ git push -u origin main
 - `README.md` - Space description and metadata
 
 **See deployment guides** in the repository for detailed instructions.
-git init
-git add .
-git commit -m "Initial deployment"
-git remote add origin https://huggingface.co/spaces/YOUR_USERNAME/SPACE_NAME
-git push -u origin main
-```
 
 **See `docs/` folder for detailed deployment guides:**
 - `DEPLOYMENT_COMPLETE.md` - Quick deployment guide
@@ -443,15 +432,29 @@ Scripts that use configuration:
 This system ensures consistency across the project and makes experimentation easier by centralizing parameter management.
 
 ## Tech Stack & Dependencies
-## 📊 Model Performance
 
-### LightGBM LambdaRank Results
-- **NDCG@5**: 
-- **NDCG@10**:   
-- **NDCG@20**: 
-- **Training**: 75K users, temporal validation split
-- **Features**: 30+ engineered features (user, product, interaction)
-- **Top Features**: ALS scores, item-item similarity, purchase recency, user-product interaction history
+## 📈 Metrics & Evaluation
+
+LightGBM LambdaRank was evaluated on the validation candidate set generated during training (`data/processed/valid_candidates.csv`). Running `python src/eval.py` computes ranking metrics and writes outputs to `reports/lgbm_eval/`.
+
+Summary (mean across 26,241 groups):
+- NDCG@5: 0.4963
+- NDCG@10: 0.5210
+- NDCG@20: 0.5748
+- MAP@10: 0.5686
+- Recall@20: 0.9115
+
+Outputs:
+- `reports/lgbm_eval/summary.json` – overall metrics and paths
+- `reports/lgbm_eval/per_group_metrics.csv` – per-order metrics
+
+Notes:
+- Here, recall@k equals hitrate@k because recall is computed over the top-k window only; it becomes 1 if any relevant item appears in top-k, else 0. The mean of this binary per-group value matches hitrate.
+
+### LightGBM LambdaRank (Training Summary)
+- Training: 75K users, temporal validation split
+- Features: 30+ engineered features (user, product, interaction)
+- Top Features: ALS scores, item-item similarity, purchase recency, user-product interaction history
 
 ### ALS Matrix Factorization
 - **Latent Factors**: 64 dimensions
@@ -467,12 +470,12 @@ This system ensures consistency across the project and makes experimentation eas
 - **Sparse Matrix**: Efficient CSR format for memory optimization
 
 ### Dataset Statistics
-- **Orders**: 3.4M+ orders from 206K users
-- **Products**: 49,688 unique products
-- **Departments**: 21 categories
-- **Aisles**: 134 subcategories
-- **Training Data**: Prior orders + training set
-- **Demo Users**: 5 users (synchronized across all data sources)
+- Orders: 3.4M+ orders from 206K users
+- Products: 49,688 unique products
+- Departments: 21 categories
+- Aisles: 134 subcategories
+- Training Data: Prior orders + training set
+- Demo Users: 5 users (synchronized across all data sources)
 ### Deployment (Minimal for HF Spaces)
 ```txt
 streamlit==1.31.0
@@ -486,20 +489,7 @@ Pillow==10.2.0
 
 ## 📊 Model Performance
 
-### LightGBM LambdaRank Results
-- **NDCG@5**: ~0.565
-- **NDCG@10**: ~0.585  
-- **NDCG@20**: ~0.605
-- **Training**: 75K users, temporal validation split
-- **Features**: 30+ engineered features (user, product, interaction)
-
-### Dataset Statistics
-- **Orders**: 3.4M+ orders from 206K users
-- **Products**: 49,688 unique products
-- **Departments**: 21 categories
-- **Aisles**: 134 subcategories
-- **Training Data**: Prior orders + training set
-- **Similarity Pairs**: 496K item-item pairs computed
+See the Metrics & Evaluation section above for the latest evaluation numbers from the repository artifacts.
 
 ## 🗂️ Repository Organization
 
