@@ -161,7 +161,7 @@ insta-rec/
    - **Deployment Ready** for Hugging Face Spaces
 
 6. **Deployment Infrastructure** ✓
-   - Demo dataset generation (10 users, 0.22 MB)
+   - Demo dataset generation (5 users, 0.22 MB)
    - Automated deployment folder preparation
    - Separate GitHub and HF Spaces repository management
    - Complete documentation and deployment guides
